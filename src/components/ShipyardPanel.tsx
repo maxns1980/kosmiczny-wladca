@@ -1,6 +1,8 @@
 
 import React from 'react';
 import { BuildingLevels, ResearchLevels, Resources, QueueItem, ShipType, Fleet } from '../types';
+import ShipRow from './ShipRow';
+import { SHIPYARD_DATA } from '../constants';
 
 interface ShipyardPanelProps {
     buildings: BuildingLevels;
@@ -12,7 +14,17 @@ interface ShipyardPanelProps {
 }
 
 const ShipyardPanel: React.FC<ShipyardPanelProps> = (props) => {
-    return <div>Shipyard Panel Placeholder</div>;
+     return (
+        <div className="space-y-4">
+            {(Object.keys(SHIPYARD_DATA) as ShipType[]).map(shipId => (
+                <ShipRow
+                    key={shipId}
+                    shipId={shipId}
+                    {...props}
+                />
+            ))}
+        </div>
+    );
 };
 
 export default ShipyardPanel;

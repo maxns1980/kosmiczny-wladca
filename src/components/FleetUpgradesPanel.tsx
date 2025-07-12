@@ -1,6 +1,8 @@
 
 import React from 'react';
 import { BuildingLevels, ResearchLevels, ShipLevels, Resources, QueueItem, ShipType } from '../types';
+import FleetUpgradesRow from './FleetUpgradesRow';
+import { SHIP_UPGRADE_DATA } from '../constants';
 
 interface FleetUpgradesPanelProps {
     buildings: BuildingLevels;
@@ -12,7 +14,17 @@ interface FleetUpgradesPanelProps {
 }
 
 const FleetUpgradesPanel: React.FC<FleetUpgradesPanelProps> = (props) => {
-    return <div>Fleet Upgrades Panel Placeholder</div>;
+    return (
+        <div className="space-y-4">
+            {(Object.keys(SHIP_UPGRADE_DATA) as ShipType[]).map(shipId => (
+                <FleetUpgradesRow
+                    key={shipId}
+                    shipId={shipId}
+                    {...props}
+                />
+            ))}
+        </div>
+    );
 };
 
 export default FleetUpgradesPanel;

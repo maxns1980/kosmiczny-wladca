@@ -1,6 +1,8 @@
 
 import React from 'react';
 import { BuildingLevels, ResearchLevels, Resources, QueueItem, DefenseType, Defenses } from '../types';
+import DefenseRow from './DefenseRow';
+import { DEFENSE_DATA } from '../constants';
 
 interface DefensePanelProps {
     buildings: BuildingLevels;
@@ -12,7 +14,17 @@ interface DefensePanelProps {
 }
 
 const DefensePanel: React.FC<DefensePanelProps> = (props) => {
-    return <div>Defense Panel Placeholder</div>;
+    return (
+        <div className="space-y-4">
+            {(Object.keys(DEFENSE_DATA) as DefenseType[]).map(defenseId => (
+                <DefenseRow
+                    key={defenseId}
+                    defenseId={defenseId}
+                    {...props}
+                />
+            ))}
+        </div>
+    );
 };
 
 export default DefensePanel;
