@@ -23,6 +23,7 @@ import Auth from './Auth';
 import { calculateProductions, calculateMaxResources } from './utils/calculations';
 
 const TOKEN_KEY = 'cosmic-lord-token';
+const GAME_STATE_KEY = 'cosmic-lord-gamestate';
 
 const initialProductions = {
     metal: 0, crystal: 0, deuterium: 0,
@@ -33,7 +34,15 @@ const initialMaxResources = { metal: 0, crystal: 0, deuterium: 0 };
 
 function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem(TOKEN_KEY));
-  const [gameState, setGameState] = useState<GameState | null>(null);
+  const [gameState, setGameState] = useState<GameState | null>(() => {
+    const savedState = localStorage.getItem(GAME_STATE_KEY);
+    try {
+        return savedState ? JSON.parse(savedState) : null;
+    } catch (e) {
+        console.error("Failed to parse saved game state", e);
+        return null;
+    }
+  });
   const [notification, setNotification] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<View>('buildings');
   const [fleetTarget, setFleetTarget] = useState<{coords: string, mission: MissionType} | null>(null);
@@ -46,36 +55,50 @@ function App() {
     setNotification(message);
     setTimeout(() => setNotification(null), 4000);
   }, []);
+  
+  const setAndStoreGameState = useCallback((newState: GameState | null) => {
+    setGameState(newState);
+    if (newState) {
+        localStorage.setItem(GAME_STATE_KEY, JSON.stringify(newState));
+    } else {
+        localStorage.removeItem(GAME_STATE_KEY);
+    }
+  }, []);
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(GAME_STATE_KEY);
     setToken(null);
     setGameState(null);
   }, []);
 
-  const fetchGameState = useCallback(async (authToken: string) => {
+  const fetchGameState = useCallback(async (authToken: string, currentState: GameState) => {
     try {
       const response = await fetch('/.netlify/functions/game', {
-        headers: { 'Authorization': `Bearer ${authToken}` }
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ gameState: currentState, action: null })
       });
       if (response.ok) {
         const data = await response.json();
-        setGameState(data.gameState);
+        setAndStoreGameState(data.gameState);
         if (data.notifications && data.notifications.length > 0) {
           data.notifications.forEach((notif: string) => showNotification(notif));
         }
       } else {
-        // Token might be invalid, log out
         handleLogout();
       }
     } catch (error) {
       console.error('Failed to fetch game state:', error);
       showNotification('Błąd połączenia z serwerem.');
     }
-  }, [showNotification, handleLogout]);
+  }, [showNotification, handleLogout, setAndStoreGameState]);
   
   const sendAction = useCallback(async (type: string, payload: any) => {
-    if (!token) return;
+    if (!token || !gameState) return;
     try {
       const response = await fetch('/.netlify/functions/game', {
         method: 'POST',
@@ -83,11 +106,11 @@ function App() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ type, payload })
+        body: JSON.stringify({ gameState, action: { type, payload } })
       });
       if (response.ok) {
         const data = await response.json();
-        setGameState(data.gameState);
+        setAndStoreGameState(data.gameState);
          if (data.notifications && data.notifications.length > 0) {
           data.notifications.forEach((notif: string) => showNotification(notif));
         }
@@ -99,28 +122,25 @@ function App() {
        console.error('Action failed:', error);
        showNotification('Błąd połączenia z serwerem.');
     }
-  }, [token, showNotification]);
+  }, [token, gameState, showNotification, setAndStoreGameState]);
 
   const handleLogin = (newToken: string, username: string, initialState: GameState) => {
     localStorage.setItem(TOKEN_KEY, newToken);
     setToken(newToken);
-    setGameState(initialState);
+    setAndStoreGameState(initialState);
     showNotification(`Witaj, ${username}!`);
   };
 
-  // Initial fetch on reload & polling
+  // Polling for offline progress calculation
   useEffect(() => {
-    if (token) {
-      // If we have a token but no state (e.g., page reload), fetch it.
-      // Otherwise (on initial login), the state is already provided, so we just set up polling.
-      if (!gameState) {
-        fetchGameState(token);
-      }
-      
-      const interval = setInterval(() => fetchGameState(token), 10000); // Poll every 10 seconds
+    if (token && gameState) {
+      const interval = setInterval(() => fetchGameState(token, gameState), 10000); // Poll every 10 seconds
       return () => clearInterval(interval);
+    } else if (token && !gameState) {
+      // If we have a token but no state in memory or localStorage, the session is broken.
+      handleLogout();
     }
-  }, [token, gameState, fetchGameState]);
+  }, [token, gameState, fetchGameState, handleLogout]);
 
   const productions = useMemo(() => {
     if (!gameState) return initialProductions;
