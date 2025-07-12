@@ -4,7 +4,8 @@ import path from 'path';
 import { GameState } from './types';
 import { initialGameState } from './constants';
 
-const dataDir = path.join((process as any).cwd(), 'data');
+// Use /tmp directory for state storage, as it's the guaranteed writable location in a serverless environment.
+const dataDir = path.join('/tmp', 'cosmic-lord-data');
 
 const ensureDataDir = async () => {
     try {
