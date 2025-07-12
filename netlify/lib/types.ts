@@ -130,6 +130,7 @@ export interface FleetMission {
 export interface NPCFleetMission {
     id: string;
     sourceCoords: string;
+    targetCoords: string;
     fleet: Fleet;
     missionType: MissionType;
     startTime: number;
@@ -234,10 +235,24 @@ export enum NPCPersonality { ECONOMIC = 'ECONOMIC', AGGRESSIVE = 'AGGRESSIVE', B
 export interface NPCState { resources: Resources; buildings: BuildingLevels; research: ResearchLevels; fleet: Fleet; defenses: Defenses; lastUpdateTime: number; personality: NPCPersonality; name: string; image: string; }
 export type NPCStates = Record<string, NPCState>;
 
+export interface PlayerPlanet {
+    owner: string;
+    name: string;
+}
+export type PlayerPlanets = Record<string, PlayerPlanet>;
 
-// Main Game State Object
+// Shared state for the entire game world
+export interface GlobalState {
+    npcStates: NPCStates;
+    debrisFields: Record<string, DebrisField>;
+    playerPlanets: PlayerPlanets;
+}
+
+
+// Player-specific Game State Object
 export interface GameState {
     username: string;
+    homePlanet: string;
     resources: Resources;
     buildings: BuildingLevels;
     research: ResearchLevels;
@@ -245,7 +260,7 @@ export interface GameState {
     fleet: Fleet;
     defenses: Defenses;
     fleetMissions: FleetMission[];
-    npcFleetMissions: NPCFleetMission[];
+    npcFleetMissions: NPCFleetMission[]; // Missions targeting the player
     messages: Message[];
     buildQueue: QueueItem[];
     credits: number;
@@ -261,9 +276,7 @@ export interface GameState {
     spacePlague: SpacePlagueState;
     lastSpacePlagueCheckTime: number;
     lastSaveTime: number;
-    npcStates: NPCStates;
     awardedBonuses: BuildingType[];
-    debrisFields: Record<string, DebrisField>;
     colonies: Colony[];
     inventory: Inventory;
     activeBoosts: ActiveBoosts;

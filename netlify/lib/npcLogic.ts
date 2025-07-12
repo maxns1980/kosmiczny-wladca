@@ -1,4 +1,5 @@
-import { NPCState, BuildingType, Resources, BuildingLevels, ResearchLevels, ResearchType, NPCPersonality, ShipType, DefenseType, NPCFleetMission, MissionType, Fleet } from './types';
+
+import { NPCState, BuildingType, Resources, BuildingLevels, ResearchLevels, ResearchType, NPCPersonality, ShipType, DefenseType, NPCFleetMission, MissionType, Fleet, GameState } from './types';
 import { BUILDING_DATA, BASE_STORAGE_CAPACITY, RESEARCH_DATA, SHIPYARD_DATA, DEFENSE_DATA } from './constants';
 
 const calculateNpcProductions = (buildings: BuildingLevels) => {
@@ -200,7 +201,7 @@ const spendResourcesAI = (npc: NPCState): NPCState => {
     return updatedNpc;
 }
 
-const missionDecisionAI = (npc: NPCState, sourceCoords: string): NPCFleetMission | null => {
+const missionDecisionAI = (npc: NPCState, sourceCoords: string, allPlayerPlanetsCoords: string[]): NPCFleetMission | null => {
      const militaryPower = Object.entries(npc.fleet).reduce((power, [shipId, count]) => {
         const shipData = SHIPYARD_DATA[shipId as ShipType];
         if (shipData && count) {
@@ -214,6 +215,9 @@ const missionDecisionAI = (npc: NPCState, sourceCoords: string): NPCFleetMission
 
     // Aggressive NPCs are more likely to act
     if (npc.personality === NPCPersonality.AGGRESSIVE && militaryPower > 15000) {
+        if (allPlayerPlanetsCoords.length === 0) return null;
+        const targetCoords = allPlayerPlanetsCoords[Math.floor(Math.random() * allPlayerPlanetsCoords.length)];
+
         // 5% chance to attack
         if (Math.random() < 0.05) {
             const attackingFleet: Partial<Fleet> = {};
@@ -250,6 +254,7 @@ const missionDecisionAI = (npc: NPCState, sourceCoords: string): NPCFleetMission
                 return {
                     id: `npc-m-${now}-${Math.random()}`,
                     sourceCoords,
+                    targetCoords,
                     fleet: attackingFleet,
                     missionType: MissionType.ATTACK,
                     startTime: now,
@@ -266,6 +271,7 @@ const missionDecisionAI = (npc: NPCState, sourceCoords: string): NPCFleetMission
                  return {
                     id: `npc-m-${now}-${Math.random()}`,
                     sourceCoords,
+                    targetCoords,
                     fleet: { [ShipType.SPY_PROBE]: 1 },
                     missionType: MissionType.SPY,
                     startTime: now,
@@ -278,7 +284,7 @@ const missionDecisionAI = (npc: NPCState, sourceCoords: string): NPCFleetMission
 }
 
 
-export const evolveNpc = (npc: NPCState, offlineSeconds: number, coords: string): { updatedNpc: NPCState, mission: NPCFleetMission | null } => {
+export const evolveNpc = (npc: NPCState, offlineSeconds: number, coords: string, allPlayerPlanetsCoords: string[]): { updatedNpc: NPCState, mission: NPCFleetMission | null } => {
     let evolvedNpc = {
         ...npc,
         resources: { ...npc.resources },
@@ -300,7 +306,7 @@ export const evolveNpc = (npc: NPCState, offlineSeconds: number, coords: string)
     evolvedNpc = spendResourcesAI(evolvedNpc);
 
     // 3. AI deciding to launch a mission
-    const mission = missionDecisionAI(evolvedNpc, coords);
+    const mission = missionDecisionAI(evolvedNpc, coords, allPlayerPlanetsCoords);
 
     // 4. Update timestamp
     evolvedNpc.lastUpdateTime = Date.now();

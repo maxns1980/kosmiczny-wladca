@@ -1,7 +1,6 @@
 
-
-import { GameState, QueueItem, MissionType, MerchantStatus, PirateMercenaryStatus, AsteroidImpactType, AncientArtifactStatus, SpacePlagueState, BoostType, Boost, ExplorationOutcomeType, ExpeditionOutcomeType, BattleReport, SpyMessage, BattleMessage, Loot, DebrisField, ShipType, Fleet, MerchantInfoMessage, EspionageEventMessage, PirateMessage, AsteroidImpactMessage, ResourceVeinMessage, AncientArtifactMessage, SpacePlagueMessage, OfflineSummaryMessage, ExpeditionMessage, ColonizationMessage, ExplorationMessage, BuildingType } from './types';
-import { ALL_GAME_OBJECTS, BUILDING_DATA, SHIPYARD_DATA, INITIAL_PIRATE_MERCENARY_STATE, INITIAL_RESOURCE_VEIN_BONUS, INITIAL_SPACE_PLAGUE_STATE, DEBRIS_FIELD_RECOVERY_RATE, PROTECTED_RESOURCES_FACTOR, PLAYER_HOME_COORDS, RESEARCH_DATA } from './constants';
+import { GameState, QueueItem, MissionType, MerchantStatus, PirateMercenaryStatus, AsteroidImpactType, AncientArtifactStatus, SpacePlagueState, BoostType, Boost, ExplorationOutcomeType, ExpeditionOutcomeType, BattleReport, SpyMessage, BattleMessage, Loot, DebrisField, ShipType, Fleet, MerchantInfoMessage, EspionageEventMessage, PirateMessage, AsteroidImpactMessage, ResourceVeinMessage, AncientArtifactMessage, SpacePlagueMessage, OfflineSummaryMessage, ExpeditionMessage, ColonizationMessage, ExplorationMessage, BuildingType, GlobalState } from './types';
+import { ALL_GAME_OBJECTS, BUILDING_DATA, SHIPYARD_DATA, INITIAL_PIRATE_MERCENARY_STATE, INITIAL_RESOURCE_VEIN_BONUS, INITIAL_SPACE_PLAGUE_STATE, DEBRIS_FIELD_RECOVERY_RATE, PROTECTED_RESOURCES_FACTOR, RESEARCH_DATA } from './constants';
 import { calculateProductions, calculateMaxResources } from '../../src/utils/calculations';
 import { calculateCombatStats, calculateTotalPower, getUnitsCost, getFleetValue } from './utils';
 import { evolveNpc } from './npcLogic';
@@ -91,133 +90,127 @@ export const processExpeditionOutcome = (mission: GameState['fleetMissions'][0],
 };
 
 
-export function processOffline(initialState: GameState): { updatedState: GameState, notifications: string[] } {
+export function processOffline(initialPlayerState: GameState, initialGlobalState: GlobalState): { updatedPlayerState: GameState, updatedGlobalState: GlobalState, notifications: string[] } {
     const notifications: string[] = [];
-    let state = JSON.parse(JSON.stringify(initialState)) as GameState;
+    let playerState = JSON.parse(JSON.stringify(initialPlayerState)) as GameState;
+    let globalState = JSON.parse(JSON.stringify(initialGlobalState)) as GlobalState;
     const now = Date.now();
-    const offlineSeconds = (now - state.lastSaveTime) / 1000;
+    const offlineSeconds = (now - playerState.lastSaveTime) / 1000;
 
     if (offlineSeconds < 1) {
-        return { updatedState: state, notifications };
+        return { updatedPlayerState: playerState, updatedGlobalState: globalState, notifications };
     }
     
-    // --- 1. Resource & Credit Production ---
-    const productions = calculateProductions(state.buildings, state.resourceVeinBonus, state.colonies, state.activeBoosts);
-    const maxResources = calculateMaxResources(state.buildings);
-    state.resources.metal = Math.min(maxResources.metal, state.resources.metal + productions.metal / 3600 * offlineSeconds);
-    state.resources.crystal = Math.min(maxResources.crystal, state.resources.crystal + productions.crystal / 3600 * offlineSeconds);
-    state.resources.deuterium = Math.min(maxResources.deuterium, state.resources.deuterium + productions.deuterium / 3600 * offlineSeconds);
+    const productions = calculateProductions(playerState.buildings, playerState.resourceVeinBonus, playerState.colonies, playerState.activeBoosts);
+    const maxResources = calculateMaxResources(playerState.buildings);
+    playerState.resources.metal = Math.min(maxResources.metal, playerState.resources.metal + productions.metal / 3600 * offlineSeconds);
+    playerState.resources.crystal = Math.min(maxResources.crystal, playerState.resources.crystal + productions.crystal / 3600 * offlineSeconds);
+    playerState.resources.deuterium = Math.min(maxResources.deuterium, playerState.resources.deuterium + productions.deuterium / 3600 * offlineSeconds);
     
-    // Black Market Income
-    const blackMarketHoursPassed = (now - state.lastBlackMarketIncomeCheck) / (3600 * 1000);
+    const blackMarketHoursPassed = (now - playerState.lastBlackMarketIncomeCheck) / (3600 * 1000);
     if(blackMarketHoursPassed >= 1) {
         const hours = Math.floor(blackMarketHoursPassed);
-        state.credits += state.blackMarketHourlyIncome * hours;
-        const blackMarketLevel = state.buildings[BuildingType.BLACK_MARKET];
+        playerState.credits += playerState.blackMarketHourlyIncome * hours;
+        const blackMarketLevel = playerState.buildings[BuildingType.BLACK_MARKET];
         if (blackMarketLevel > 0) {
              const minIncome = 50 * Math.pow(1.1, blackMarketLevel - 1);
              const maxIncome = 200 * Math.pow(1.1, blackMarketLevel - 1);
-             state.blackMarketHourlyIncome = minIncome + Math.random() * (maxIncome - minIncome);
+             playerState.blackMarketHourlyIncome = minIncome + Math.random() * (maxIncome - minIncome);
         }
-        state.lastBlackMarketIncomeCheck = now;
+        playerState.lastBlackMarketIncomeCheck = now;
     }
 
     // --- Process NPC Evolution ---
-    const npcUpdates: GameState['npcStates'] = {};
-    for (const coords in state.npcStates) {
-        const npc = state.npcStates[coords];
+    const allPlayerPlanetsCoords = Object.keys(globalState.playerPlanets);
+    for (const coords in globalState.npcStates) {
+        const npc = globalState.npcStates[coords];
         const timeSinceLastUpdate = now - npc.lastUpdateTime;
-        // Evolve if more than 5 minutes passed since last individual update
-        if (timeSinceLastUpdate > 5 * 60 * 1000) {
-            const evolutionResult = evolveNpc(npc, timeSinceLastUpdate / 1000, coords);
-            npcUpdates[coords] = evolutionResult.updatedNpc;
+        if (timeSinceLastUpdate > 5 * 60 * 1000) { // Evolve every 5 mins
+            const evolutionResult = evolveNpc(npc, timeSinceLastUpdate / 1000, coords, allPlayerPlanetsCoords);
+            globalState.npcStates[coords] = evolutionResult.updatedNpc;
             if (evolutionResult.mission) {
-                state.npcFleetMissions.push(evolutionResult.mission);
-                const attackerNpc = evolutionResult.updatedNpc;
-                notifications.push(`Wykryto flotę gracza ${attackerNpc.name} (NPC) z [${coords}] zmierzającą w Twoją stronę!`);
+                if ((evolutionResult.mission.missionType === 'ATTACK' || evolutionResult.mission.missionType === 'SPY') && (globalState.playerPlanets[evolutionResult.mission.targetCoords]?.owner === playerState.username)) {
+                    playerState.npcFleetMissions.push(evolutionResult.mission);
+                    const missionText = evolutionResult.mission.missionType === 'ATTACK' ? 'atakującą' : 'szpiegującą';
+                    notifications.push(`Wykryto flotę gracza ${npc.name} (NPC) z [${coords}] ${missionText} Twoją planetę!`);
+                }
             }
-        } else {
-            npcUpdates[coords] = npc; // Keep the old one if not updated
         }
     }
-    state.npcStates = npcUpdates;
 
-
-    // --- 2. Process Build Queue ---
-    const completedQueueItems = state.buildQueue.filter(item => now >= item.endTime);
+    // --- Process Player Build Queue ---
+    const completedQueueItems = playerState.buildQueue.filter(item => now >= item.endTime);
     if (completedQueueItems.length > 0) {
         completedQueueItems.forEach(item => {
             const objectInfo = ALL_GAME_OBJECTS[item.id as keyof typeof ALL_GAME_OBJECTS];
             notifications.push(`${objectInfo.name} ${item.type.match(/^(ship|defense)$/) ? 'zbudowano' : 'ukończono na poziomie'} ${item.levelOrAmount}!`);
-            if (item.type === 'building') state.buildings[item.id as keyof typeof state.buildings] = item.levelOrAmount;
-            else if (item.type === 'research') state.research[item.id as keyof typeof state.research] = item.levelOrAmount;
-            else if (item.type === 'ship_upgrade') state.shipLevels[item.id as keyof typeof state.shipLevels] = item.levelOrAmount;
-            else if (item.type === 'ship') state.fleet[item.id as keyof typeof state.fleet] = (state.fleet[item.id as keyof typeof state.fleet] || 0) + item.levelOrAmount;
-            else if (item.type === 'defense') state.defenses[item.id as keyof typeof state.defenses] = (state.defenses[item.id as keyof typeof state.defenses] || 0) + item.levelOrAmount;
+            if (item.type === 'building') playerState.buildings[item.id as keyof typeof playerState.buildings] = item.levelOrAmount;
+            else if (item.type === 'research') playerState.research[item.id as keyof typeof playerState.research] = item.levelOrAmount;
+            else if (item.type === 'ship_upgrade') playerState.shipLevels[item.id as keyof typeof playerState.shipLevels] = item.levelOrAmount;
+            else if (item.type === 'ship') playerState.fleet[item.id as keyof typeof playerState.fleet] = (playerState.fleet[item.id as keyof typeof playerState.fleet] || 0) + item.levelOrAmount;
+            else if (item.type === 'defense') playerState.defenses[item.id as keyof typeof playerState.defenses] = (playerState.defenses[item.id as keyof typeof playerState.defenses] || 0) + item.levelOrAmount;
         });
-        state.buildQueue = state.buildQueue.filter(item => now < item.endTime);
+        playerState.buildQueue = playerState.buildQueue.filter(item => now < item.endTime);
     }
     
-    // --- 3. Process Fleet Missions ---
+    // --- Process Player Fleet Missions ---
     const activeMissions: GameState['fleetMissions'] = [];
-    state.fleetMissions.forEach(mission => {
+    playerState.fleetMissions.forEach(mission => {
         if (now >= mission.returnTime) { // Mission is over
             let finalFleet = mission.fleet;
             let finalLoot: Loot = mission.loot || {};
             if (mission.missionType === MissionType.EXPEDITION) {
-                 const { message, finalFleet: expFleet, finalLoot: expLoot } = processExpeditionOutcome(mission, state.shipLevels);
-                 state.messages.unshift(message);
+                 const { message, finalFleet: expFleet, finalLoot: expLoot } = processExpeditionOutcome(mission, playerState.shipLevels);
+                 playerState.messages.unshift(message);
                  finalFleet = expFleet;
                  finalLoot = expLoot;
             } else {
                  notifications.push(`Flota powróciła z misji na [${mission.targetCoords}].`);
             }
-            // Return fleet and loot to player
             for (const shipType in finalFleet) {
-                 state.fleet[shipType as ShipType] = (state.fleet[shipType as ShipType] || 0) + (finalFleet[shipType as ShipType] || 0);
+                 playerState.fleet[shipType as ShipType] = (playerState.fleet[shipType as ShipType] || 0) + (finalFleet[shipType as ShipType] || 0);
             }
-            state.resources.metal = Math.min(maxResources.metal, state.resources.metal + (finalLoot.metal || 0));
-            state.resources.crystal = Math.min(maxResources.crystal, state.resources.crystal + (finalLoot.crystal || 0));
-            state.resources.deuterium = Math.min(maxResources.deuterium, state.resources.deuterium + (finalLoot.deuterium || 0));
-            state.credits += finalLoot.credits || 0;
+            playerState.resources.metal = Math.min(maxResources.metal, playerState.resources.metal + (finalLoot.metal || 0));
+            playerState.resources.crystal = Math.min(maxResources.crystal, playerState.resources.crystal + (finalLoot.crystal || 0));
+            playerState.resources.deuterium = Math.min(maxResources.deuterium, playerState.resources.deuterium + (finalLoot.deuterium || 0));
+            playerState.credits += finalLoot.credits || 0;
         } else {
             activeMissions.push(mission);
         }
     });
-    state.fleetMissions = activeMissions;
+    playerState.fleetMissions = activeMissions;
 
-    // --- 4. Timed Events ---
-    // Merchant
-    if (now - state.lastMerchantCheckTime > 6 * 3600 * 1000) {
-        state.lastMerchantCheckTime = now;
-        if (state.merchantState.status === MerchantStatus.INACTIVE && Math.random() < 0.35) {
-            state.merchantState.status = MerchantStatus.INCOMING;
-            state.merchantState.arrivalTime = now + 5 * 3600 * 1000;
+    // --- Timed Events ---
+    if (now - playerState.lastMerchantCheckTime > 6 * 3600 * 1000) {
+        playerState.lastMerchantCheckTime = now;
+        if (playerState.merchantState.status === MerchantStatus.INACTIVE && Math.random() < 0.35) {
+            playerState.merchantState.status = MerchantStatus.INCOMING;
+            playerState.merchantState.arrivalTime = now + 5 * 3600 * 1000;
         }
     }
-    if (state.merchantState.status === MerchantStatus.INCOMING && now >= state.merchantState.arrivalTime) {
-        state.merchantState.status = MerchantStatus.ACTIVE;
-        state.merchantState.departureTime = now + 2 * 3600 * 1000;
+    if (playerState.merchantState.status === MerchantStatus.INCOMING && now >= playerState.merchantState.arrivalTime) {
+        playerState.merchantState.status = MerchantStatus.ACTIVE;
+        playerState.merchantState.departureTime = now + 2 * 3600 * 1000;
         notifications.push("Kupiec przybył!");
     }
-    if (state.merchantState.status === MerchantStatus.ACTIVE && now >= state.merchantState.departureTime) {
-        state.merchantState.status = MerchantStatus.INACTIVE;
+    if (playerState.merchantState.status === MerchantStatus.ACTIVE && now >= playerState.merchantState.departureTime) {
+        playerState.merchantState.status = MerchantStatus.INACTIVE;
         notifications.push("Kupiec odleciał.");
     }
 
-    // --- 5. Update Boosts ---
+    // Update Boosts
     const newActiveBoosts: GameState['activeBoosts'] = {};
-    for (const key in state.activeBoosts) {
+    for (const key in playerState.activeBoosts) {
         const boostType = key as BoostType;
-        const boost = state.activeBoosts[boostType];
+        const boost = playerState.activeBoosts[boostType];
         if (boost && boost.endTime > now) {
             newActiveBoosts[boostType] = boost;
         } else {
             notifications.push(`Bonus "${getBoostNameForNotif({ type: boostType, level: (boost as any).level || 1 })}" wygasł.`);
         }
     }
-    state.activeBoosts = newActiveBoosts;
+    playerState.activeBoosts = newActiveBoosts;
 
-    state.lastSaveTime = now;
-    return { updatedState: state, notifications };
+    playerState.lastSaveTime = now;
+    return { updatedPlayerState: playerState, updatedGlobalState: globalState, notifications };
 }

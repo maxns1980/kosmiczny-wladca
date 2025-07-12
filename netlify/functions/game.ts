@@ -2,8 +2,9 @@
 import { Handler, HandlerEvent } from '@netlify/functions';
 import jwt from 'jsonwebtoken';
 import { getUserState, writeUserState } from '../lib/db';
+import { getGlobalState, writeGlobalState } from '../lib/globalState';
 import { processOffline } from '../lib/gameLogic';
-import { GameState } from '../lib/types';
+import { GameState, GlobalState } from '../lib/types';
 import { handleAction } from '../lib/actionHandler';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-default-secret-key-for-development';
@@ -27,20 +28,24 @@ const handler: Handler = async (event: HandlerEvent) => {
         return { statusCode: 401, body: JSON.stringify({ error: 'Invalid token payload' }) };
     }
 
-    let gameState = await getUserState(username);
-    if (!gameState) {
-        return { statusCode: 404, body: JSON.stringify({ error: 'Game state not found' }) };
+    let playerState = await getUserState(username);
+    if (!playerState) {
+        return { statusCode: 404, body: JSON.stringify({ error: 'Game state not found for user' }) };
     }
+
+    let globalState = await getGlobalState();
     
-    const offlineResult = processOffline(gameState);
-    let currentGameState = offlineResult.updatedState;
-    const allNotifications = [...offlineResult.notifications];
+    const { updatedPlayerState, updatedGlobalState, notifications } = processOffline(playerState, globalState);
+    let finalPlayerState = updatedPlayerState;
+    let finalGlobalState = updatedGlobalState;
+    const allNotifications = [...notifications];
 
     if (event.httpMethod === 'POST' && event.body) {
         try {
             const { type, payload } = JSON.parse(event.body);
-            const actionResult = handleAction(currentGameState, { type, payload });
-            currentGameState = actionResult.gameState;
+            const actionResult = handleAction(finalPlayerState, finalGlobalState, { type, payload });
+            finalPlayerState = actionResult.playerState;
+            finalGlobalState = actionResult.globalState;
             allNotifications.push(...actionResult.notifications);
         } catch (error: any) {
             return {
@@ -50,12 +55,14 @@ const handler: Handler = async (event: HandlerEvent) => {
         }
     }
     
-    await writeUserState(username, currentGameState);
+    await writeUserState(username, finalPlayerState);
+    await writeGlobalState(finalGlobalState);
 
     return {
         statusCode: 200,
         body: JSON.stringify({
-            gameState: currentGameState,
+            playerState: finalPlayerState,
+            worldState: finalGlobalState,
             notifications: allNotifications,
         }),
     };

@@ -1,11 +1,8 @@
 
-
 import { BuildingType, ResearchType, ShipType, DefenseType, Resources, BuildingLevels, ResearchLevels, Fleet, Defenses, BuildingCategory, MerchantState, MerchantStatus, NPCState, NPCFleetMission, ShipLevels, DebrisField, PirateMercenaryState, PirateMercenaryStatus, ResourceVeinBonus, AncientArtifactState, AncientArtifactStatus, SpacePlagueState, CombatStats, Colony, Inventory, ActiveBoosts, GameState } from './types';
 
 export const TICK_INTERVAL = 1000; // ms
 export const BASE_STORAGE_CAPACITY = 10000;
-export const NPC_STATES_KEY = 'cosmic-lord-npc-states';
-export const PLAYER_HOME_COORDS = '1:42:8';
 export const DEBRIS_FIELD_RECOVERY_RATE = 0.3; // 30% of destroyed units' cost becomes debris
 export const PROTECTED_RESOURCES_FACTOR = 0.1; // 10% of storage capacity is protected from raids
 export const COLONY_INCOME_BONUS_PER_HOUR: Resources = {
@@ -709,7 +706,7 @@ export const ALL_GAME_OBJECTS = {
     ...SHIP_UPGRADE_DATA
 };
 
-export const initialGameState: Omit<GameState, 'username' | 'lastSaveTime' | 'lastMerchantCheckTime' | 'lastPirateCheckTime' | 'lastAsteroidCheckTime' | 'lastResourceVeinCheckTime' | 'lastArtifactCheckTime' | 'lastSpacePlagueCheckTime' | 'lastBlackMarketIncomeCheck' > = {
+export const initialGameState: Omit<GameState, 'username' | 'homePlanet' | 'lastSaveTime' | 'lastMerchantCheckTime' | 'lastPirateCheckTime' | 'lastAsteroidCheckTime' | 'lastResourceVeinCheckTime' | 'lastArtifactCheckTime' | 'lastSpacePlagueCheckTime' | 'lastBlackMarketIncomeCheck' > = {
     resources: INITIAL_RESOURCES,
     buildings: INITIAL_BUILDING_LEVELS,
     research: INITIAL_RESEARCH_LEVELS,
@@ -726,9 +723,7 @@ export const initialGameState: Omit<GameState, 'username' | 'lastSaveTime' | 'la
     resourceVeinBonus: INITIAL_RESOURCE_VEIN_BONUS,
     ancientArtifactState: INITIAL_ANCIENT_ARTIFACT_STATE,
     spacePlague: INITIAL_SPACE_PLAGUE_STATE,
-    npcStates: {},
     awardedBonuses: [],
-    debrisFields: INITIAL_DEBRIS_FIELDS,
     colonies: INITIAL_COLONIES,
     inventory: INITIAL_INVENTORY,
     activeBoosts: INITIAL_ACTIVE_BOOSTS,

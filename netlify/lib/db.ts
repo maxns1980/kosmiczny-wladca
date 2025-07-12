@@ -3,8 +3,8 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { GameState } from './types';
 import { initialGameState } from './constants';
+import { findAndClaimEmptyPlanet } from './globalState';
 
-// Use /tmp directory for state storage, as it's the guaranteed writable location in a serverless environment.
 const dataDir = path.join('/tmp', 'cosmic-lord-data');
 
 const ensureDataDir = async () => {
@@ -27,9 +27,12 @@ export const getUserState = async (username: string): Promise<GameState | null> 
 };
 
 export const createUserState = async (username: string): Promise<GameState> => {
+    const homePlanetCoords = await findAndClaimEmptyPlanet(username);
+
     const newUserState: GameState = {
-        ...(initialGameState as any), // Cast to avoid partial type issue
+        ...(JSON.parse(JSON.stringify(initialGameState))), // Deep copy
         username: username,
+        homePlanet: homePlanetCoords,
         lastSaveTime: Date.now(),
         lastMerchantCheckTime: Date.now(),
         lastPirateCheckTime: Date.now(),

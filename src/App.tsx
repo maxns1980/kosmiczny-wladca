@@ -1,8 +1,6 @@
 
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { GameState } from './types';
-import { View, MissionType, Resources, AncientArtifactChoice } from './types';
+import { GameState, GlobalState, View, MissionType, Resources, AncientArtifactChoice, MerchantStatus } from './types';
 import Header from './components/Header';
 import BuildingsPanel from './components/BuildingsPanel';
 import ResearchPanel from './components/ResearchPanel';
@@ -25,6 +23,11 @@ import { calculateProductions, calculateMaxResources } from './utils/calculation
 
 const TOKEN_KEY = 'cosmic-lord-token';
 
+interface FullState {
+    playerState: GameState;
+    worldState: GlobalState;
+}
+
 const initialProductions = {
     metal: 0, crystal: 0, deuterium: 0,
     energy: { produced: 0, consumed: 0, efficiency: 1 }
@@ -34,7 +37,7 @@ const initialMaxResources = { metal: 0, crystal: 0, deuterium: 0 };
 
 function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem(TOKEN_KEY));
-  const [gameState, setGameState] = useState<GameState | null>(null);
+  const [fullState, setFullState] = useState<FullState | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<View>('buildings');
   const [fleetTarget, setFleetTarget] = useState<{coords: string, mission: MissionType} | null>(null);
@@ -55,12 +58,11 @@ function App() {
       });
       if (response.ok) {
         const data = await response.json();
-        setGameState(data.gameState);
+        setFullState({ playerState: data.playerState, worldState: data.worldState });
         if (data.notifications && data.notifications.length > 0) {
           data.notifications.forEach((notif: string) => showNotification(notif));
         }
       } else {
-        // Token might be invalid, log out
         handleLogout();
       }
     } catch (error) {
@@ -82,7 +84,7 @@ function App() {
       });
       if (response.ok) {
         const data = await response.json();
-        setGameState(data.gameState);
+        setFullState({ playerState: data.playerState, worldState: data.worldState });
          if (data.notifications && data.notifications.length > 0) {
           data.notifications.forEach((notif: string) => showNotification(notif));
         }
@@ -96,11 +98,10 @@ function App() {
     }
   }, [token, showNotification]);
 
-  // Initial fetch and polling
   useEffect(() => {
     if (token) {
       fetchGameState(token);
-      const interval = setInterval(() => fetchGameState(token), 10000); // Poll every 10 seconds
+      const interval = setInterval(() => fetchGameState(token), 10000);
       return () => clearInterval(interval);
     }
   }, [token, fetchGameState]);
@@ -114,18 +115,19 @@ function App() {
   const handleLogout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
-    setGameState(null);
+    setFullState(null);
   }, []);
 
   const productions = useMemo(() => {
-    if (!gameState) return initialProductions;
-    return calculateProductions(gameState.buildings, gameState.resourceVeinBonus, gameState.colonies, gameState.activeBoosts);
-  }, [gameState]);
+    if (!fullState) return initialProductions;
+    const { buildings, resourceVeinBonus, colonies, activeBoosts } = fullState.playerState;
+    return calculateProductions(buildings, resourceVeinBonus, colonies, activeBoosts);
+  }, [fullState]);
 
   const maxResources = useMemo(() => {
-    if (!gameState) return initialMaxResources;
-    return calculateMaxResources(gameState.buildings);
-  }, [gameState?.buildings]);
+    if (!fullState) return initialMaxResources;
+    return calculateMaxResources(fullState.playerState.buildings);
+  }, [fullState?.playerState.buildings]);
 
   const handleActionFromGalaxy = useCallback((targetCoords: string, missionType: MissionType) => {
     setFleetTarget({ coords: targetCoords, mission: missionType });
@@ -136,7 +138,7 @@ function App() {
     return <Auth onLogin={handleLogin} />;
   }
 
-  if (!gameState) {
+  if (!fullState) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white text-2xl">
         Ładowanie danych z serwera...
@@ -144,7 +146,9 @@ function App() {
     );
   }
   
-  const { resources, buildings, research, shipLevels, fleet, defenses, fleetMissions, npcFleetMissions, messages, buildQueue, credits, merchantState, pirateMercenaryState, ancientArtifactState, inventory, activeBoosts, debrisFields, colonies, npcStates, blackMarketHourlyIncome, resourceVeinBonus, spacePlague } = gameState;
+  const { playerState, worldState } = fullState;
+  const { resources, buildings, research, shipLevels, fleet, defenses, fleetMissions, npcFleetMissions, messages, buildQueue, credits, merchantState, pirateMercenaryState, ancientArtifactState, inventory, activeBoosts, colonies, spacePlague, homePlanet } = playerState;
+  const { npcStates, debrisFields, playerPlanets } = worldState;
 
   return (
     <div className="min-h-screen bg-gray-900 bg-cover bg-center bg-fixed" style={{backgroundImage: "url('https://picsum.photos/seed/galaxy/1920/1080')"}}>
@@ -160,8 +164,8 @@ function App() {
             productions={productions} 
             maxResources={maxResources}
             credits={credits}
-            blackMarketHourlyIncome={blackMarketHourlyIncome} 
-            resourceVeinBonus={resourceVeinBonus} 
+            blackMarketHourlyIncome={playerState.blackMarketHourlyIncome} 
+            resourceVeinBonus={playerState.resourceVeinBonus} 
             inventory={inventory}
             activeBoosts={activeBoosts}
             onInfoClick={() => setIsInfoModalOpen(true)}
@@ -192,13 +196,13 @@ function App() {
                 {activeView === 'fleet_upgrades' && <FleetUpgradesPanel buildings={buildings} research={research} shipLevels={shipLevels} resources={resources} onUpgrade={(type) => sendAction('ADD_TO_QUEUE', { id: type, type: 'ship_upgrade' })} buildQueue={buildQueue} />}
                 {activeView === 'shipyard' && <ShipyardPanel buildings={buildings} research={research} resources={resources} onBuild={(type, amount) => sendAction('ADD_TO_QUEUE', { id: type, type: 'ship', amount })} buildQueue={buildQueue} fleet={fleet} />}
                 {activeView === 'defense' && <DefensePanel buildings={buildings} research={research} resources={resources} onBuild={(type, amount) => sendAction('ADD_TO_QUEUE', { id: type, type: 'defense', amount })} buildQueue={buildQueue} defenses={defenses} />}
-                {activeView === 'fleet' && <FleetPanel fleet={fleet} fleetMissions={fleetMissions} onSendFleet={(...args) => sendAction('SEND_FLEET', { missionFleet: args[0], targetCoords: args[1], missionType: args[2] })} research={research} initialTarget={fleetTarget} onClearInitialTarget={() => setFleetTarget(null)} spacePlague={spacePlague} colonies={colonies} npcStates={npcStates} />}
-                {activeView === 'galaxy' && <GalaxyPanel onAction={handleActionFromGalaxy} npcStates={npcStates} debrisFields={debrisFields} colonies={colonies} />}
+                {activeView === 'fleet' && <FleetPanel homePlanet={homePlanet} fleet={fleet} fleetMissions={fleetMissions} onSendFleet={(...args) => sendAction('SEND_FLEET', { missionFleet: args[0], targetCoords: args[1], missionType: args[2] })} research={research} initialTarget={fleetTarget} onClearInitialTarget={() => setFleetTarget(null)} spacePlague={spacePlague} colonies={colonies} npcStates={npcStates} playerPlanets={playerPlanets} />}
+                {activeView === 'galaxy' && <GalaxyPanel username={playerState.username} homePlanet={homePlanet} onAction={handleActionFromGalaxy} npcStates={npcStates} debrisFields={debrisFields} colonies={colonies} playerPlanets={playerPlanets} />}
                 {activeView === 'messages' && <MessagesPanel messages={messages} onRead={(id) => sendAction('MARK_MESSAGE_READ', { id })} onDelete={(id) => sendAction('DELETE_MESSAGE', { id })} onDeleteAll={() => sendAction('DELETE_ALL_MESSAGES', {})} />}
-                {activeView === 'merchant' && merchantState.status === 'ACTIVE' && <MerchantPanel merchantState={merchantState} resources={resources} credits={credits} maxResources={maxResources} onTrade={(...args) => sendAction('TRADE_MERCHANT', { resource: args[0], amount: args[1], tradeType: args[2] })} />}
+                {activeView === 'merchant' && merchantState.status === MerchantStatus.ACTIVE && <MerchantPanel merchantState={merchantState} resources={resources} credits={credits} maxResources={maxResources} onTrade={(...args) => sendAction('TRADE_MERCHANT', { resource: args[0], amount: args[1], tradeType: args[2] })} />}
             </div>
            <footer className="text-center text-gray-500 mt-12 pb-4">
-              <p>Kosmiczny Władca ({gameState.username}) - Gra na serwerze Netlify</p>
+              <p>Kosmiczny Władca ({playerState.username}) - Gra na serwerze Netlify</p>
            </footer>
         </main>
       </div>

@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { Fleet, FleetMission, ShipType, MissionType, ResearchType, ResearchLevels, SpacePlagueState, Colony, NPCStates } from '../types';
-import { SHIPYARD_DATA, RESEARCH_DATA, PLAYER_HOME_COORDS } from '../constants';
+import { Fleet, FleetMission, ShipType, MissionType, ResearchType, ResearchLevels, SpacePlagueState, Colony, NPCStates, PlayerPlanets } from '../types';
+import { SHIPYARD_DATA, RESEARCH_DATA } from '../constants';
 
 interface FleetPanelProps {
+    homePlanet: string;
     fleet: Fleet;
     fleetMissions: FleetMission[];
     research: ResearchLevels;
@@ -13,6 +14,7 @@ interface FleetPanelProps {
     spacePlague: SpacePlagueState;
     colonies: Colony[];
     npcStates: NPCStates;
+    playerPlanets: PlayerPlanets;
 }
 
 const formatNumber = (num: number) => Math.floor(num).toLocaleString('pl-PL');
@@ -82,9 +84,9 @@ const MissionRow: React.FC<{mission: FleetMission}> = ({ mission }) => {
     )
 }
 
-const FleetPanel: React.FC<FleetPanelProps> = ({ fleet, fleetMissions, research, onSendFleet, initialTarget, onClearInitialTarget, spacePlague, colonies, npcStates }) => {
+const FleetPanel: React.FC<FleetPanelProps> = ({ homePlanet, fleet, fleetMissions, research, onSendFleet, initialTarget, onClearInitialTarget, spacePlague, colonies, npcStates, playerPlanets }) => {
     const [missionFleet, setMissionFleet] = useState<Fleet>({});
-    const [targetCoords, setTargetCoords] = useState("1:42:8");
+    const [targetCoords, setTargetCoords] = useState(homePlanet);
     const [missionType, setMissionType] = useState<MissionType>(MissionType.ATTACK);
 
     useEffect(() => {
@@ -121,7 +123,7 @@ const FleetPanel: React.FC<FleetPanelProps> = ({ fleet, fleetMissions, research,
     const hasRecyclers = (fleet[ShipType.RECYCLER] || 0) > 0;
     const hasColonyShip = (fleet[ShipType.COLONY_SHIP] || 0) > 0;
     const hasResearchVessel = (fleet[ShipType.RESEARCH_VESSEL] || 0) > 0;
-    const isTargetOccupied = npcStates[targetCoords] || colonies.some(c => c.id === targetCoords) || targetCoords === PLAYER_HOME_COORDS;
+    const isTargetOccupied = npcStates[targetCoords] || playerPlanets[targetCoords];
 
     return (
         <div className="bg-gray-800 bg-opacity-70 backdrop-blur-sm border border-gray-700 rounded-xl shadow-2xl p-4 md:p-6 space-y-8">
