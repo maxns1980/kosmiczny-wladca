@@ -1,5 +1,5 @@
-import { BuildingLevels, Resources, ResourceVeinBonus, Colony, ActiveBoosts, BuildingType, BoostType } from '../types';
-import { BUILDING_DATA, COLONY_INCOME_BONUS_PER_HOUR } from '../constants';
+import { BuildingLevels, Resources, ResourceVeinBonus, Colony, ActiveBoosts, BuildingType, BoostType } from '../../types';
+import { BUILDING_DATA, COLONY_INCOME_BONUS_PER_HOUR } from '../../constants';
 
 export const calculateMaxResources = (buildings: BuildingLevels): Resources => {
     const metalCapacity = BUILDING_DATA[BuildingType.METAL_STORAGE].capacity?.(buildings[BuildingType.METAL_STORAGE]) ?? 0;
