@@ -17,7 +17,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         setIsSubmitting(true);
         setError(null);
         try {
-            const response = await fetch('/api/auth', {
+            const response = await fetch('/.netlify/functions/auth', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username: username.trim(), action }),

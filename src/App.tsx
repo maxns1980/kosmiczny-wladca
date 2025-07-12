@@ -49,7 +49,7 @@ function App() {
 
   const fetchGameState = useCallback(async (authToken: string) => {
     try {
-      const response = await fetch('/api/game', {
+      const response = await fetch('/.netlify/functions/game', {
         headers: { 'Authorization': `Bearer ${authToken}` }
       });
       if (response.ok) {
@@ -71,7 +71,7 @@ function App() {
   const sendAction = useCallback(async (type: string, payload: any) => {
     if (!token) return;
     try {
-      const response = await fetch('/api/game', {
+      const response = await fetch('/.netlify/functions/game', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
