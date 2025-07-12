@@ -47,6 +47,12 @@ function App() {
     setTimeout(() => setNotification(null), 4000);
   }, []);
 
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem(TOKEN_KEY);
+    setToken(null);
+    setGameState(null);
+  }, []);
+
   const fetchGameState = useCallback(async (authToken: string) => {
     try {
       const response = await fetch('/.netlify/functions/game', {
@@ -66,7 +72,7 @@ function App() {
       console.error('Failed to fetch game state:', error);
       showNotification('Błąd połączenia z serwerem.');
     }
-  }, [showNotification]);
+  }, [showNotification, handleLogout]);
   
   const sendAction = useCallback(async (type: string, payload: any) => {
     if (!token) return;
@@ -95,26 +101,26 @@ function App() {
     }
   }, [token, showNotification]);
 
-  // Initial fetch and polling
-  useEffect(() => {
-    if (token) {
-      fetchGameState(token);
-      const interval = setInterval(() => fetchGameState(token), 10000); // Poll every 10 seconds
-      return () => clearInterval(interval);
-    }
-  }, [token, fetchGameState]);
-
-  const handleLogin = (newToken: string, username: string) => {
+  const handleLogin = (newToken: string, username: string, initialState: GameState) => {
     localStorage.setItem(TOKEN_KEY, newToken);
     setToken(newToken);
+    setGameState(initialState);
     showNotification(`Witaj, ${username}!`);
   };
 
-  const handleLogout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
-    setToken(null);
-    setGameState(null);
-  }, []);
+  // Initial fetch on reload & polling
+  useEffect(() => {
+    if (token) {
+      // If we have a token but no state (e.g., page reload), fetch it.
+      // Otherwise (on initial login), the state is already provided, so we just set up polling.
+      if (!gameState) {
+        fetchGameState(token);
+      }
+      
+      const interval = setInterval(() => fetchGameState(token), 10000); // Poll every 10 seconds
+      return () => clearInterval(interval);
+    }
+  }, [token, gameState, fetchGameState]);
 
   const productions = useMemo(() => {
     if (!gameState) return initialProductions;

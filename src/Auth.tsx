@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import { GameState } from './types';
 
 interface AuthProps {
-    onLogin: (token: string, username: string) => void;
+    onLogin: (token: string, username: string, gameState: GameState) => void;
 }
 
 const Auth: React.FC<AuthProps> = ({ onLogin }) => {
@@ -26,7 +27,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             const data = await response.json();
 
             if (response.ok) {
-                onLogin(data.token, data.username);
+                onLogin(data.token, data.username, data.gameState);
             } else {
                 setError(data.error || 'Wystąpił nieznany błąd.');
             }
