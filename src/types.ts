@@ -1,3 +1,4 @@
+
 export type View = 'buildings' | 'research' | 'shipyard' | 'defense' | 'fleet' | 'messages' | 'merchant' | 'galaxy' | 'fleet_upgrades';
 
 export enum BuildingType {

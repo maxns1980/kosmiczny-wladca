@@ -1,6 +1,6 @@
 
 
-import { BuildingType, ResearchType, ShipType, DefenseType, Resources, BuildingLevels, ResearchLevels, Fleet, Defenses, BuildingCategory, MerchantState, MerchantStatus, NPCState, NPCFleetMission, ShipLevels, DebrisField, PirateMercenaryState, PirateMercenaryStatus, ResourceVeinBonus, AncientArtifactState, AncientArtifactStatus, SpacePlagueState, CombatStats, Colony, Inventory, ActiveBoosts, GameState } from './types';
+import { BuildingType, ResearchType, ShipType, DefenseType, Resources, BuildingLevels, ResearchLevels, Fleet, Defenses, BuildingCategory, MerchantState, MerchantStatus, NPCState, NPCFleetMission, ShipLevels, DebrisField, PirateMercenaryState, PirateMercenaryStatus, ResourceVeinBonus, AncientArtifactState, AncientArtifactStatus, SpacePlagueState, CombatStats, Colony, Inventory, ActiveBoosts } from './types';
 
 export const TICK_INTERVAL = 1000; // ms
 export const BASE_STORAGE_CAPACITY = 10000;
@@ -707,31 +707,4 @@ export const ALL_GAME_OBJECTS = {
     ...SHIPYARD_DATA,
     ...DEFENSE_DATA,
     ...SHIP_UPGRADE_DATA
-};
-
-export const initialGameState: Omit<GameState, 'username' | 'lastSaveTime' | 'lastMerchantCheckTime' | 'lastPirateCheckTime' | 'lastAsteroidCheckTime' | 'lastResourceVeinCheckTime' | 'lastArtifactCheckTime' | 'lastSpacePlagueCheckTime' | 'lastBlackMarketIncomeCheck' > = {
-    resources: INITIAL_RESOURCES,
-    buildings: INITIAL_BUILDING_LEVELS,
-    research: INITIAL_RESEARCH_LEVELS,
-    shipLevels: INITIAL_SHIP_LEVELS,
-    fleet: INITIAL_FLEET,
-    defenses: INITIAL_DEFENSES,
-    fleetMissions: [],
-    npcFleetMissions: INITIAL_NPC_FLEET_MISSIONS,
-    messages: [],
-    buildQueue: [],
-    credits: 10000,
-    merchantState: INITIAL_MERCHANT_STATE,
-    pirateMercenaryState: INITIAL_PIRATE_MERCENARY_STATE,
-    resourceVeinBonus: INITIAL_RESOURCE_VEIN_BONUS,
-    ancientArtifactState: INITIAL_ANCIENT_ARTIFACT_STATE,
-    spacePlague: INITIAL_SPACE_PLAGUE_STATE,
-    npcStates: {},
-    awardedBonuses: [],
-    debrisFields: INITIAL_DEBRIS_FIELDS,
-    colonies: INITIAL_COLONIES,
-    inventory: INITIAL_INVENTORY,
-    activeBoosts: INITIAL_ACTIVE_BOOSTS,
-    activeCostReduction: 0,
-    blackMarketHourlyIncome: 0,
 };

@@ -1,10 +1,11 @@
-import { BuildingLevels, Resources, ResourceVeinBonus, Colony, ActiveBoosts, BuildingType, BoostType } from '../../types';
-import { BUILDING_DATA, COLONY_INCOME_BONUS_PER_HOUR } from '../../constants';
+
+import { BuildingLevels, Resources, ResourceVeinBonus, Colony, ActiveBoosts, BuildingType, BoostType } from '../types';
+import { BUILDING_DATA, COLONY_INCOME_BONUS_PER_HOUR, BASE_STORAGE_CAPACITY } from '../constants';
 
 export const calculateMaxResources = (buildings: BuildingLevels): Resources => {
-    const metalCapacity = BUILDING_DATA[BuildingType.METAL_STORAGE].capacity?.(buildings[BuildingType.METAL_STORAGE]) ?? 0;
-    const crystalCapacity = BUILDING_DATA[BuildingType.CRYSTAL_STORAGE].capacity?.(buildings[BuildingType.CRYSTAL_STORAGE]) ?? 0;
-    const deuteriumCapacity = BUILDING_DATA[BuildingType.DEUTERIUM_TANK].capacity?.(buildings[BuildingType.DEUTERIUM_TANK]) ?? 0;
+    const metalCapacity = BUILDING_DATA[BuildingType.METAL_STORAGE].capacity?.(buildings[BuildingType.METAL_STORAGE]) ?? BASE_STORAGE_CAPACITY;
+    const crystalCapacity = BUILDING_DATA[BuildingType.CRYSTAL_STORAGE].capacity?.(buildings[BuildingType.CRYSTAL_STORAGE]) ?? BASE_STORAGE_CAPACITY;
+    const deuteriumCapacity = BUILDING_DATA[BuildingType.DEUTERIUM_TANK].capacity?.(buildings[BuildingType.DEUTERIUM_TANK]) ?? BASE_STORAGE_CAPACITY;
 
     return {
       metal: metalCapacity,

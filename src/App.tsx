@@ -1,25 +1,25 @@
 
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { GameState } from '../types';
-import { View, MissionType, Resources, AncientArtifactChoice } from '../types';
-import Header from '../components/Header';
-import BuildingsPanel from '../components/BuildingsPanel';
-import ResearchPanel from '../components/ResearchPanel';
-import ShipyardPanel from '../components/ShipyardPanel';
-import DefensePanel from '../components/DefensePanel';
-import FleetPanel from '../components/FleetPanel';
-import MessagesPanel from '../components/MessagesPanel';
-import { MerchantPanel } from '../components/MerchantPanel';
-import Navigation from '../components/Navigation';
-import QueuePanel from '../components/QueuePanel';
-import GalaxyPanel from '../components/GalaxyPanel';
-import FleetUpgradesPanel from '../components/FleetUpgradesPanel';
-import PirateMercenaryPanel from '../components/PirateMercenaryPanel';
-import AncientArtifactModal from '../components/AncientArtifactModal';
-import InfoModal from '../components/InfoModal';
-import EncyclopediaModal from '../components/EncyclopediaModal';
-import InventoryModal from '../components/InventoryModal';
+import { GameState } from './types';
+import { View, MissionType, Resources, AncientArtifactChoice } from './types';
+import Header from './components/Header';
+import BuildingsPanel from './components/BuildingsPanel';
+import ResearchPanel from './components/ResearchPanel';
+import ShipyardPanel from './components/ShipyardPanel';
+import DefensePanel from './components/DefensePanel';
+import FleetPanel from './components/FleetPanel';
+import MessagesPanel from './components/MessagesPanel';
+import { MerchantPanel } from './components/MerchantPanel';
+import Navigation from './components/Navigation';
+import QueuePanel from './components/QueuePanel';
+import GalaxyPanel from './components/GalaxyPanel';
+import FleetUpgradesPanel from './components/FleetUpgradesPanel';
+import PirateMercenaryPanel from './components/PirateMercenaryPanel';
+import AncientArtifactModal from './components/AncientArtifactModal';
+import InfoModal from './components/InfoModal';
+import EncyclopediaModal from './components/EncyclopediaModal';
+import InventoryModal from './components/InventoryModal';
 import Auth from './Auth';
 import { calculateProductions, calculateMaxResources } from './utils/calculations';
 
@@ -144,7 +144,7 @@ function App() {
     );
   }
   
-  const { resources, buildings, research, shipLevels, fleet, defenses, fleetMissions, npcFleetMissions, messages, buildQueue, credits, merchantState, pirateMercenaryState, ancientArtifactState, inventory, activeBoosts, debrisFields, colonies, npcStates, blackMarketHourlyIncome, resourceVeinBonus } = gameState;
+  const { resources, buildings, research, shipLevels, fleet, defenses, fleetMissions, npcFleetMissions, messages, buildQueue, credits, merchantState, pirateMercenaryState, ancientArtifactState, inventory, activeBoosts, debrisFields, colonies, npcStates, blackMarketHourlyIncome, resourceVeinBonus, spacePlague } = gameState;
 
   return (
     <div className="min-h-screen bg-gray-900 bg-cover bg-center bg-fixed" style={{backgroundImage: "url('https://picsum.photos/seed/galaxy/1920/1080')"}}>
@@ -192,13 +192,13 @@ function App() {
                 {activeView === 'fleet_upgrades' && <FleetUpgradesPanel buildings={buildings} research={research} shipLevels={shipLevels} resources={resources} onUpgrade={(type) => sendAction('ADD_TO_QUEUE', { id: type, type: 'ship_upgrade' })} buildQueue={buildQueue} />}
                 {activeView === 'shipyard' && <ShipyardPanel buildings={buildings} research={research} resources={resources} onBuild={(type, amount) => sendAction('ADD_TO_QUEUE', { id: type, type: 'ship', amount })} buildQueue={buildQueue} fleet={fleet} />}
                 {activeView === 'defense' && <DefensePanel buildings={buildings} research={research} resources={resources} onBuild={(type, amount) => sendAction('ADD_TO_QUEUE', { id: type, type: 'defense', amount })} buildQueue={buildQueue} defenses={defenses} />}
-                {activeView === 'fleet' && <FleetPanel fleet={fleet} fleetMissions={fleetMissions} onSendFleet={(...args) => sendAction('SEND_FLEET', { missionFleet: args[0], targetCoords: args[1], missionType: args[2] })} research={research} initialTarget={fleetTarget} onClearInitialTarget={() => setFleetTarget(null)} spacePlague={gameState.spacePlague} colonies={colonies} npcStates={npcStates} />}
+                {activeView === 'fleet' && <FleetPanel fleet={fleet} fleetMissions={fleetMissions} onSendFleet={(...args) => sendAction('SEND_FLEET', { missionFleet: args[0], targetCoords: args[1], missionType: args[2] })} research={research} initialTarget={fleetTarget} onClearInitialTarget={() => setFleetTarget(null)} spacePlague={spacePlague} colonies={colonies} npcStates={npcStates} />}
                 {activeView === 'galaxy' && <GalaxyPanel onAction={handleActionFromGalaxy} npcStates={npcStates} onNpcUpdate={() => {}} onNpcMissionLaunch={() => {}} debrisFields={debrisFields} colonies={colonies} />}
                 {activeView === 'messages' && <MessagesPanel messages={messages} onRead={(id) => sendAction('MARK_MESSAGE_READ', { id })} onDelete={(id) => sendAction('DELETE_MESSAGE', { id })} onDeleteAll={() => sendAction('DELETE_ALL_MESSAGES', {})} />}
                 {activeView === 'merchant' && merchantState.status === 'ACTIVE' && <MerchantPanel merchantState={merchantState} resources={resources} credits={credits} maxResources={maxResources} onTrade={(...args) => sendAction('TRADE_MERCHANT', { resource: args[0], amount: args[1], tradeType: args[2] })} />}
             </div>
            <footer className="text-center text-gray-500 mt-12 pb-4">
-              <p>Kosmiczny Władca - Gra na serwerze Netlify</p>
+              <p>Kosmiczny Władca ({gameState.username}) - Gra na serwerze Netlify</p>
            </footer>
         </main>
       </div>
