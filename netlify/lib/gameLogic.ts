@@ -1,25 +1,10 @@
 
+
 import { GameState, QueueItem, MissionType, MerchantStatus, PirateMercenaryStatus, AsteroidImpactType, AncientArtifactStatus, SpacePlagueState, BoostType, Boost, ExplorationOutcomeType, ExpeditionOutcomeType, BattleReport, SpyReport, Loot, DebrisField, ShipType, BuildingType, MerchantInfoMessage, EspionageEventMessage, PirateMessage, AsteroidImpactMessage, ResourceVeinMessage, AncientArtifactMessage, SpacePlagueMessage, ExpeditionMessage, BattleMessage, SpyMessage, ColonizationMessage, ExplorationMessage, Fleet } from './types';
 import { ALL_GAME_OBJECTS, BUILDING_DATA, SHIPYARD_DATA, INITIAL_PIRATE_MERCENARY_STATE, INITIAL_RESOURCE_VEIN_BONUS, INITIAL_SPACE_PLAGUE_STATE, DEBRIS_FIELD_RECOVERY_RATE, PROTECTED_RESOURCES_FACTOR, PLAYER_HOME_COORDS } from './constants';
 import { calculateProductions, calculateMaxResources } from './calculations';
 import { calculateCombatStats, calculateTotalPower, getUnitsCost } from './utils';
-
-// Helper to format numbers for notifications
-const formatNumber = (num: number): string => {
-    return Math.floor(num).toLocaleString('pl-PL');
-};
-
-export const getBoostNameForNotif = (boost: Omit<Boost, 'id' | 'duration'>) => {
-    switch(boost.type) {
-        case BoostType.EXTRA_BUILD_QUEUE: return `Dodatkowa kolejka budowy (${boost.level})`;
-        case BoostType.RESOURCE_PRODUCTION_BOOST: return `Produkcja +${boost.level}%`;
-        case BoostType.COMBAT_TECH_BOOST: return `Kalibracja Broni Polowej (+${boost.level}%)`;
-        case BoostType.ARMOR_TECH_BOOST: return `Wzmocnienie Pancerza (+${boost.level}%)`;
-        case BoostType.DRIVE_TECH_BOOST: return `Dopalacz napędu (+${boost.level}%)`;
-        case BoostType.CONSTRUCTION_COST_REDUCTION: return `Zniżka na budowę/badania (-${boost.level}%)`;
-        default: return 'Nieznany bonus';
-    }
-}
+import { getBoostNameForNotif } from './helpers';
 
 export const processExpeditionOutcome = (mission: GameState['fleetMissions'][0], shipLevels: GameState['shipLevels']): { message: ExpeditionMessage, finalFleet: Fleet, finalLoot: Loot } => {
     // This is a complex function, translated from the original App.tsx
