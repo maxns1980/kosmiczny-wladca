@@ -4,7 +4,7 @@ import path from 'path';
 import { GameState } from './types';
 import { initialGameState } from './constants';
 
-const dataDir = path.join('/tmp', 'data');
+const dataDir = path.join((process as any).cwd(), 'data');
 
 const ensureDataDir = async () => {
     try {

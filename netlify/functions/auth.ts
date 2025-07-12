@@ -1,7 +1,6 @@
 import { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import jwt from 'jsonwebtoken';
-import { userExists, createUserState, getUserState } from '../lib/db';
-import { GameState } from '../lib/types';
+import { userExists, createUserState } from '../lib/db';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-default-secret-key-for-development';
 
@@ -22,35 +21,28 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
         }
         
         const doesUserExist = await userExists(username);
-        let gameState: GameState | null;
 
         if (action === 'create') {
             if (doesUserExist) {
                 return { statusCode: 409, body: JSON.stringify({ error: 'Nazwa użytkownika już istnieje.' }) };
             }
-            gameState = await createUserState(username);
+            await createUserState(username);
         } else if (action === 'login') {
             if (!doesUserExist) {
                 return { statusCode: 404, body: JSON.stringify({ error: 'Użytkownik nie istnieje.' }) };
             }
-            gameState = await getUserState(username);
         } else {
             return { statusCode: 400, body: JSON.stringify({ error: 'Invalid action' }) };
-        }
-
-        if (!gameState) {
-            return { statusCode: 500, body: JSON.stringify({ error: 'Nie można załadować danych gracza.' }) };
         }
         
         const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '7d' });
 
         return {
             statusCode: 200,
-            body: JSON.stringify({ token, username, gameState }),
+            body: JSON.stringify({ token, username }),
         };
 
     } catch (error) {
-        console.error("Auth error:", error);
         return { statusCode: 500, body: JSON.stringify({ error: 'Internal Server Error' }) };
     }
 };

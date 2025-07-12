@@ -1,29 +1,29 @@
 
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { GameState, View, MissionType } from './types';
-import Header from './components/Header';
-import BuildingsPanel from './components/BuildingsPanel';
-import ResearchPanel from './components/ResearchPanel';
-import ShipyardPanel from './components/ShipyardPanel';
-import DefensePanel from './components/DefensePanel';
-import FleetPanel from './components/FleetPanel';
-import MessagesPanel from './components/MessagesPanel';
-import { MerchantPanel } from './components/MerchantPanel';
-import Navigation from './components/Navigation';
-import QueuePanel from './components/QueuePanel';
-import GalaxyPanel from './components/GalaxyPanel';
-import FleetUpgradesPanel from './components/FleetUpgradesPanel';
-import PirateMercenaryPanel from './components/PirateMercenaryPanel';
-import AncientArtifactModal from './components/AncientArtifactModal';
-import InfoModal from './components/InfoModal';
-import EncyclopediaModal from './components/EncyclopediaModal';
-import InventoryModal from './components/InventoryModal';
+import { GameState } from '../types';
+import { View, MissionType, Resources, AncientArtifactChoice } from '../types';
+import Header from '../components/Header';
+import BuildingsPanel from '../components/BuildingsPanel';
+import ResearchPanel from '../components/ResearchPanel';
+import ShipyardPanel from '../components/ShipyardPanel';
+import DefensePanel from '../components/DefensePanel';
+import FleetPanel from '../components/FleetPanel';
+import MessagesPanel from '../components/MessagesPanel';
+import { MerchantPanel } from '../components/MerchantPanel';
+import Navigation from '../components/Navigation';
+import QueuePanel from '../components/QueuePanel';
+import GalaxyPanel from '../components/GalaxyPanel';
+import FleetUpgradesPanel from '../components/FleetUpgradesPanel';
+import PirateMercenaryPanel from '../components/PirateMercenaryPanel';
+import AncientArtifactModal from '../components/AncientArtifactModal';
+import InfoModal from '../components/InfoModal';
+import EncyclopediaModal from '../components/EncyclopediaModal';
+import InventoryModal from '../components/InventoryModal';
 import Auth from './Auth';
 import { calculateProductions, calculateMaxResources } from './utils/calculations';
 
 const TOKEN_KEY = 'cosmic-lord-token';
-const GAME_STATE_KEY = 'cosmic-lord-gamestate';
 
 const initialProductions = {
     metal: 0, crystal: 0, deuterium: 0,
@@ -34,15 +34,7 @@ const initialMaxResources = { metal: 0, crystal: 0, deuterium: 0 };
 
 function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem(TOKEN_KEY));
-  const [gameState, setGameState] = useState<GameState | null>(() => {
-    const savedState = localStorage.getItem(GAME_STATE_KEY);
-    try {
-        return savedState ? JSON.parse(savedState) : null;
-    } catch (e) {
-        console.error("Failed to parse saved game state", e);
-        return null;
-    }
-  });
+  const [gameState, setGameState] = useState<GameState | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<View>('buildings');
   const [fleetTarget, setFleetTarget] = useState<{coords: string, mission: MissionType} | null>(null);
@@ -55,62 +47,42 @@ function App() {
     setNotification(message);
     setTimeout(() => setNotification(null), 4000);
   }, []);
-  
-  const setAndStoreGameState = useCallback((newState: GameState | null) => {
-    setGameState(newState);
-    if (newState) {
-        localStorage.setItem(GAME_STATE_KEY, JSON.stringify(newState));
-    } else {
-        localStorage.removeItem(GAME_STATE_KEY);
-    }
-  }, []);
 
-  const handleLogout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(GAME_STATE_KEY);
-    setToken(null);
-    setGameState(null);
-  }, []);
-
-  const fetchGameState = useCallback(async (authToken: string, currentState: GameState) => {
+  const fetchGameState = useCallback(async (authToken: string) => {
     try {
-      const response = await fetch('/.netlify/functions/game', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authToken}`
-        },
-        body: JSON.stringify({ gameState: currentState, action: null })
+      const response = await fetch('/api/game', {
+        headers: { 'Authorization': `Bearer ${authToken}` }
       });
       if (response.ok) {
         const data = await response.json();
-        setAndStoreGameState(data.gameState);
+        setGameState(data.gameState);
         if (data.notifications && data.notifications.length > 0) {
           data.notifications.forEach((notif: string) => showNotification(notif));
         }
       } else {
+        // Token might be invalid, log out
         handleLogout();
       }
     } catch (error) {
       console.error('Failed to fetch game state:', error);
       showNotification('Błąd połączenia z serwerem.');
     }
-  }, [showNotification, handleLogout, setAndStoreGameState]);
+  }, [showNotification]);
   
   const sendAction = useCallback(async (type: string, payload: any) => {
-    if (!token || !gameState) return;
+    if (!token) return;
     try {
-      const response = await fetch('/.netlify/functions/game', {
+      const response = await fetch('/api/game', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ gameState, action: { type, payload } })
+        body: JSON.stringify({ type, payload })
       });
       if (response.ok) {
         const data = await response.json();
-        setAndStoreGameState(data.gameState);
+        setGameState(data.gameState);
          if (data.notifications && data.notifications.length > 0) {
           data.notifications.forEach((notif: string) => showNotification(notif));
         }
@@ -122,25 +94,28 @@ function App() {
        console.error('Action failed:', error);
        showNotification('Błąd połączenia z serwerem.');
     }
-  }, [token, gameState, showNotification, setAndStoreGameState]);
+  }, [token, showNotification]);
 
-  const handleLogin = (newToken: string, username: string, initialState: GameState) => {
+  // Initial fetch and polling
+  useEffect(() => {
+    if (token) {
+      fetchGameState(token);
+      const interval = setInterval(() => fetchGameState(token), 10000); // Poll every 10 seconds
+      return () => clearInterval(interval);
+    }
+  }, [token, fetchGameState]);
+
+  const handleLogin = (newToken: string, username: string) => {
     localStorage.setItem(TOKEN_KEY, newToken);
     setToken(newToken);
-    setAndStoreGameState(initialState);
     showNotification(`Witaj, ${username}!`);
   };
 
-  // Polling for offline progress calculation
-  useEffect(() => {
-    if (token && gameState) {
-      const interval = setInterval(() => fetchGameState(token, gameState), 10000); // Poll every 10 seconds
-      return () => clearInterval(interval);
-    } else if (token && !gameState) {
-      // If we have a token but no state in memory or localStorage, the session is broken.
-      handleLogout();
-    }
-  }, [token, gameState, fetchGameState, handleLogout]);
+  const handleLogout = useCallback(() => {
+    localStorage.removeItem(TOKEN_KEY);
+    setToken(null);
+    setGameState(null);
+  }, []);
 
   const productions = useMemo(() => {
     if (!gameState) return initialProductions;

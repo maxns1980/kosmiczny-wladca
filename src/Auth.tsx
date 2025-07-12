@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { GameState } from './types';
 
 interface AuthProps {
-    onLogin: (token: string, username: string, gameState: GameState) => void;
+    onLogin: (token: string, username: string) => void;
 }
 
 const Auth: React.FC<AuthProps> = ({ onLogin }) => {
@@ -18,7 +17,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         setIsSubmitting(true);
         setError(null);
         try {
-            const response = await fetch('/.netlify/functions/auth', {
+            const response = await fetch('/api/auth', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username: username.trim(), action }),
@@ -27,7 +26,7 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             const data = await response.json();
 
             if (response.ok) {
-                onLogin(data.token, data.username, data.gameState);
+                onLogin(data.token, data.username);
             } else {
                 setError(data.error || 'Wystąpił nieznany błąd.');
             }
