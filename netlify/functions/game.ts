@@ -1,3 +1,4 @@
+
 import { Handler, HandlerEvent } from '@netlify/functions';
 import jwt from 'jsonwebtoken';
 import { getUserState, writeUserState } from '../lib/db';
@@ -31,36 +32,16 @@ const handler: Handler = async (event: HandlerEvent) => {
         return { statusCode: 404, body: JSON.stringify({ error: 'Game state not found' }) };
     }
     
-    // Process offline progress before any action or state return
-    const { updatedState, notifications } = processOffline(gameState);
-    gameState = updatedState;
+    const offlineResult = processOffline(gameState);
+    let currentGameState = offlineResult.updatedState;
+    const allNotifications = [...offlineResult.notifications];
 
-    if (event.httpMethod === 'GET') {
-        // Just getting the state, save the offline-processed state
-        await writeUserState(username, gameState);
-        return {
-            statusCode: 200,
-            body: JSON.stringify({ gameState, notifications }),
-        };
-    }
-
-    if (event.httpMethod === 'POST') {
-        if (!event.body) {
-            return { statusCode: 400, body: JSON.stringify({ error: 'Missing action body' }) };
-        }
+    if (event.httpMethod === 'POST' && event.body) {
         try {
             const { type, payload } = JSON.parse(event.body);
-            const actionResult = handleAction(gameState, { type, payload });
-            
-            await writeUserState(username, actionResult.gameState);
-
-            return {
-                statusCode: 200,
-                body: JSON.stringify({
-                    gameState: actionResult.gameState,
-                    notifications: [...notifications, ...actionResult.notifications],
-                }),
-            };
+            const actionResult = handleAction(currentGameState, { type, payload });
+            currentGameState = actionResult.gameState;
+            allNotifications.push(...actionResult.notifications);
         } catch (error: any) {
             return {
                 statusCode: 400,
@@ -68,8 +49,16 @@ const handler: Handler = async (event: HandlerEvent) => {
             };
         }
     }
+    
+    await writeUserState(username, currentGameState);
 
-    return { statusCode: 405, body: 'Method Not Allowed' };
+    return {
+        statusCode: 200,
+        body: JSON.stringify({
+            gameState: currentGameState,
+            notifications: allNotifications,
+        }),
+    };
 };
 
 export { handler };

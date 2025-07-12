@@ -1,4 +1,5 @@
-import { CombatStats, ResearchLevels, ActiveBoosts, SpacePlagueState, Fleet, Defenses, Resources, ShipType, GameState } from './types';
+
+import { CombatStats, ResearchLevels, ActiveBoosts, SpacePlagueState, Fleet, Defenses, Resources, ShipType, GameState, ShipLevels } from './types';
 import { ALL_GAME_OBJECTS, SHIPYARD_DATA } from './constants';
 
 
@@ -14,6 +15,19 @@ export const getUnitsCost = (units: Partial<Fleet | Defenses>): Resources => {
     }
     return cost;
 }
+
+export const getFleetValue = (fleet: Fleet, shipLevels: ShipLevels): number => {
+    let value = 0;
+    for (const [shipId, count] of Object.entries(fleet)) {
+        if (!count || count === 0) continue;
+        const shipData = SHIPYARD_DATA[shipId as ShipType];
+        const shipLevel = shipLevels[shipId as ShipType] || 0;
+        const cost = shipData.cost(1);
+        const shipValue = (cost.metal + cost.crystal + cost.deuterium) * (1 + shipLevel * 0.1);
+        value += shipValue * count;
+    }
+    return value;
+};
 
 export const calculateCombatStats = (
     baseStats: CombatStats,
