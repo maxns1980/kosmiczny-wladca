@@ -1,4 +1,4 @@
-import { GameState, QueueItem, MissionType, MerchantStatus, PirateMercenaryStatus, AsteroidImpactType, AncientArtifactStatus, SpacePlagueState, BoostType, Boost, ExplorationOutcomeType, ExpeditionOutcomeType, BattleReport, SpyMessage, BattleMessage, Loot, DebrisField } from './types';
+import { GameState, QueueItem, MissionType, MerchantStatus, PirateMercenaryStatus, AsteroidImpactType, AncientArtifactStatus, SpacePlagueState, BoostType, Boost, ExplorationOutcomeType, ExpeditionOutcomeType, BattleReport, SpyMessage, BattleMessage, Loot, DebrisField, ShipType } from './types';
 import { ALL_GAME_OBJECTS, BUILDING_DATA, SHIPYARD_DATA, INITIAL_PIRATE_MERCENARY_STATE, INITIAL_RESOURCE_VEIN_BONUS, INITIAL_SPACE_PLAGUE_STATE, DEBRIS_FIELD_RECOVERY_RATE, PROTECTED_RESOURCES_FACTOR, PLAYER_HOME_COORDS } from './constants';
 import { calculateProductions, calculateMaxResources } from '../../src/utils/calculations'; // Note: This might need adjustment based on build process
 import { calculateCombatStats, calculateTotalPower, getUnitsCost } from './utils';
@@ -107,8 +107,8 @@ export function processOffline(initialState: GameState): { updatedState: GameSta
 
     // --- 4. Handle Timed Events (Merchant, Pirates, etc) ---
     // This is a simplified version of the logic from the original App.tsx
-    if (state.merchantState.status === 'ACTIVE' && now >= state.merchantState.departureTime) {
-        state.merchantState.status = 'INACTIVE';
+    if (state.merchantState.status === MerchantStatus.ACTIVE && now >= state.merchantState.departureTime) {
+        state.merchantState.status = MerchantStatus.INACTIVE;
         notifications.push("Kupiec odleciał.");
     }
 

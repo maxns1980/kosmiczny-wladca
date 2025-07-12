@@ -1,4 +1,5 @@
 
+
 import { GameState, QueueItemType, GameObject, Resources, MissionType, AncientArtifactChoice, ShipType, ResearchType, BoostType } from './types';
 import { ALL_GAME_OBJECTS, SHIPYARD_DATA, RESEARCH_DATA, DEBRIS_FIELD_RECOVERY_RATE, PLAYER_HOME_COORDS, PROTECTED_RESOURCES_FACTOR } from './constants';
 import { processExpeditionOutcome, getBoostNameForNotif } from './gameLogic';
@@ -56,3 +57,7 @@ export function handleAction(state: GameState, action: { type: string, payload: 
                 throw new Error("Za mało surowców!");
             }
             break;
+        }
+    }
+    return { gameState: newState, notifications };
+}

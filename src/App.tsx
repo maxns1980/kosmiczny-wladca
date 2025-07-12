@@ -1,24 +1,25 @@
 
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { GameState } from '../types';
 import { View, MissionType, Resources, AncientArtifactChoice } from '../types';
-import Header from './components/Header';
-import BuildingsPanel from './components/BuildingsPanel';
-import ResearchPanel from './components/ResearchPanel';
-import ShipyardPanel from './components/ShipyardPanel';
-import DefensePanel from './components/DefensePanel';
-import FleetPanel from './components/FleetPanel';
-import MessagesPanel from './components/MessagesPanel';
-import { MerchantPanel } from './components/MerchantPanel';
-import Navigation from './components/Navigation';
-import QueuePanel from './components/QueuePanel';
-import GalaxyPanel from './components/GalaxyPanel';
-import FleetUpgradesPanel from './components/FleetUpgradesPanel';
-import PirateMercenaryPanel from './components/PirateMercenaryPanel';
-import AncientArtifactModal from './components/AncientArtifactModal';
-import InfoModal from './components/InfoModal';
-import EncyclopediaModal from './components/EncyclopediaModal';
-import InventoryModal from './components/InventoryModal';
+import Header from '../components/Header';
+import BuildingsPanel from '../components/BuildingsPanel';
+import ResearchPanel from '../components/ResearchPanel';
+import ShipyardPanel from '../components/ShipyardPanel';
+import DefensePanel from '../components/DefensePanel';
+import FleetPanel from '../components/FleetPanel';
+import MessagesPanel from '../components/MessagesPanel';
+import { MerchantPanel } from '../components/MerchantPanel';
+import Navigation from '../components/Navigation';
+import QueuePanel from '../components/QueuePanel';
+import GalaxyPanel from '../components/GalaxyPanel';
+import FleetUpgradesPanel from '../components/FleetUpgradesPanel';
+import PirateMercenaryPanel from '../components/PirateMercenaryPanel';
+import AncientArtifactModal from '../components/AncientArtifactModal';
+import InfoModal from '../components/InfoModal';
+import EncyclopediaModal from '../components/EncyclopediaModal';
+import InventoryModal from '../components/InventoryModal';
 import Auth from './Auth';
 import { calculateProductions, calculateMaxResources } from './utils/calculations';
 
