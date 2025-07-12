@@ -1,7 +1,7 @@
 
 import { GameState, QueueItem, MissionType, MerchantStatus, PirateMercenaryStatus, AsteroidImpactType, AncientArtifactStatus, SpacePlagueState, BoostType, Boost, ExplorationOutcomeType, ExpeditionOutcomeType, BattleReport, SpyReport, Loot, DebrisField, ShipType, BuildingType, MerchantInfoMessage, EspionageEventMessage, PirateMessage, AsteroidImpactMessage, ResourceVeinMessage, AncientArtifactMessage, SpacePlagueMessage, ExpeditionMessage, BattleMessage, SpyMessage, ColonizationMessage, ExplorationMessage, Fleet } from './types';
 import { ALL_GAME_OBJECTS, BUILDING_DATA, SHIPYARD_DATA, INITIAL_PIRATE_MERCENARY_STATE, INITIAL_RESOURCE_VEIN_BONUS, INITIAL_SPACE_PLAGUE_STATE, DEBRIS_FIELD_RECOVERY_RATE, PROTECTED_RESOURCES_FACTOR, PLAYER_HOME_COORDS } from './constants';
-import { calculateProductions, calculateMaxResources } from '../../src/utils/calculations';
+import { calculateProductions, calculateMaxResources } from './calculations';
 import { calculateCombatStats, calculateTotalPower, getUnitsCost } from './utils';
 
 // Helper to format numbers for notifications

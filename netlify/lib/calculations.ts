@@ -1,3 +1,4 @@
+
 import { BuildingLevels, Resources, ResourceVeinBonus, Colony, ActiveBoosts, BuildingType, BoostType } from './types';
 import { BUILDING_DATA, COLONY_INCOME_BONUS_PER_HOUR } from './constants';
 

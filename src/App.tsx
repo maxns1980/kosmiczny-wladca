@@ -1,8 +1,7 @@
 
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { GameState } from '../types';
-import { View, MissionType, AncientArtifactChoice } from '../types';
+import { GameState, View, MissionType } from './types';
 import Header from './components/Header';
 import BuildingsPanel from './components/BuildingsPanel';
 import ResearchPanel from './components/ResearchPanel';

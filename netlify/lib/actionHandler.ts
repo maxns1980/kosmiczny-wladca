@@ -1,11 +1,12 @@
 
 
 
+
 import { GameState, QueueItemType, GameObject, Resources, MissionType, AncientArtifactChoice, ShipType, ResearchType, BoostType, Fleet, BattleReport, SpyReport, Loot, DebrisField, BattleMessage, SpyMessage, AncientArtifactMessage, PirateMessage, ColonizationMessage, AncientArtifactStatus } from './types';
 import { ALL_GAME_OBJECTS, SHIPYARD_DATA, RESEARCH_DATA, DEBRIS_FIELD_RECOVERY_RATE, PLAYER_HOME_COORDS, PROTECTED_RESOURCES_FACTOR, INITIAL_PIRATE_MERCENARY_STATE } from './constants';
 import { getBoostNameForNotif } from './gameLogic';
 import { calculateTotalPower, getUnitsCost } from './utils';
-import { calculateMaxResources } from '../../src/utils/calculations';
+import { calculateMaxResources } from './calculations';
 
 
 type ActionResult = {
