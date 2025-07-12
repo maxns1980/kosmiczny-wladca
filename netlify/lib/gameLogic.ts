@@ -4,6 +4,7 @@ import { GameState, QueueItem, MissionType, MerchantStatus, PirateMercenaryStatu
 import { ALL_GAME_OBJECTS, BUILDING_DATA, SHIPYARD_DATA, INITIAL_PIRATE_MERCENARY_STATE, INITIAL_RESOURCE_VEIN_BONUS, INITIAL_SPACE_PLAGUE_STATE, DEBRIS_FIELD_RECOVERY_RATE, PROTECTED_RESOURCES_FACTOR, PLAYER_HOME_COORDS, RESEARCH_DATA } from './constants';
 import { calculateProductions, calculateMaxResources } from '../../src/utils/calculations';
 import { calculateCombatStats, calculateTotalPower, getUnitsCost, getFleetValue } from './utils';
+import { evolveNpc } from './npcLogic';
 
 const formatNumber = (num: number): string => {
     return Math.floor(num).toLocaleString('pl-PL');
@@ -120,6 +121,26 @@ export function processOffline(initialState: GameState): { updatedState: GameSta
         }
         state.lastBlackMarketIncomeCheck = now;
     }
+
+    // --- Process NPC Evolution ---
+    const npcUpdates: GameState['npcStates'] = {};
+    for (const coords in state.npcStates) {
+        const npc = state.npcStates[coords];
+        const timeSinceLastUpdate = now - npc.lastUpdateTime;
+        // Evolve if more than 5 minutes passed since last individual update
+        if (timeSinceLastUpdate > 5 * 60 * 1000) {
+            const evolutionResult = evolveNpc(npc, timeSinceLastUpdate / 1000, coords);
+            npcUpdates[coords] = evolutionResult.updatedNpc;
+            if (evolutionResult.mission) {
+                state.npcFleetMissions.push(evolutionResult.mission);
+                const attackerNpc = evolutionResult.updatedNpc;
+                notifications.push(`Wykryto flotę gracza ${attackerNpc.name} (NPC) z [${coords}] zmierzającą w Twoją stronę!`);
+            }
+        } else {
+            npcUpdates[coords] = npc; // Keep the old one if not updated
+        }
+    }
+    state.npcStates = npcUpdates;
 
 
     // --- 2. Process Build Queue ---
