@@ -1,3 +1,4 @@
+
 import { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import jwt from 'jsonwebtoken';
 import { userExists, createUserState } from '../lib/db';
