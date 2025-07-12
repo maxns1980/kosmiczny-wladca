@@ -3,16 +3,17 @@ import type { Handler, HandlerEvent, HandlerContext } from "@netlify/functions";
 import { db } from './db';
 import {
     INITIAL_RESOURCES, INITIAL_BUILDING_LEVELS, INITIAL_RESEARCH_LEVELS, INITIAL_FLEET, INITIAL_DEFENSES, 
-    BUILDING_DATA, ALL_GAME_OBJECTS, INITIAL_MERCHANT_STATE, 
+    ALL_GAME_OBJECTS, INITIAL_MERCHANT_STATE, 
     INITIAL_NPC_FLEET_MISSIONS, INITIAL_SHIP_LEVELS, INITIAL_DEBRIS_FIELDS, 
     INITIAL_PIRATE_MERCENARY_STATE, INITIAL_RESOURCE_VEIN_BONUS, INITIAL_ANCIENT_ARTIFACT_STATE, 
     INITIAL_SPACE_PLAGUE_STATE, INITIAL_COLONIES, INITIAL_INVENTORY, INITIAL_ACTIVE_BOOSTS
 } from '../../constants';
 import { 
     GameState, BuildingType, ResearchType, ShipType, DefenseType, QueueItem, 
-    FleetMission, MissionType, ExpeditionMessage, OfflineSummaryMessage
+    FleetMission, MissionType, OfflineSummaryMessage
 } from '../../types';
-import { calculateProductions, calculateMaxResources, processExpeditionOutcome, evolveNpc, initializeNpc } from './utils';
+import { calculateProductions, calculateMaxResources, processExpeditionOutcome, evolveNpc } from './utils';
+import { verifyToken } from './auth-utils';
 
 const getInitialState = (): GameState => ({
     resources: INITIAL_RESOURCES,
@@ -53,13 +54,14 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
     if (event.httpMethod !== 'POST') {
         return { statusCode: 405, body: 'Method Not Allowed' };
     }
+    
+    const auth = verifyToken(event);
+    if (!auth) {
+        return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
+    }
+    const { userId } = auth;
 
     try {
-        const { userId } = JSON.parse(event.body || '{}');
-        if (!userId) {
-            return { statusCode: 400, body: 'User ID is required' };
-        }
-
         let gameState = await db.get(userId);
         
         if (!gameState) {
@@ -72,11 +74,9 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
         const offlineSeconds = Math.max(0, Math.floor(offlineTimeMs / 1000));
         
         if (offlineSeconds > 5) {
-            // This is the server-side simulation loop, adapted from the client's offline calculation
             let simState = gameState;
             const offlineEvents: string[] = [];
             
-            // --- Evolve NPCs ---
             Object.keys(simState.npcStates).forEach(coords => {
                 const npc = simState.npcStates[coords];
                 const evolvedResult = evolveNpc(npc, (now - npc.lastUpdateTime) / 1000, coords);
@@ -86,20 +86,17 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
                 }
             });
 
-            // --- Process each second of offline time ---
             for (let i = 0; i < offlineSeconds; i++) {
                 const tickTime = simState.lastSaveTime + (i + 1) * 1000;
                 
                 const simProductions = calculateProductions(simState.buildings, simState.resourceVeinBonus, simState.colonies, simState.activeBoosts);
                 const simMaxResources = calculateMaxResources(simState.buildings);
     
-                // --- Apply 1 second of production ---
                 simState.resources.metal = Math.min(simMaxResources.metal, simState.resources.metal + simProductions.metal / 3600);
                 simState.resources.crystal = Math.min(simMaxResources.crystal, simState.resources.crystal + simProductions.crystal / 3600);
                 simState.resources.deuterium = Math.min(simMaxResources.deuterium, simState.resources.deuterium + simProductions.deuterium / 3600);
                 simState.credits += simState.blackMarketHourlyIncome / 3600;
 
-                // --- Process build queue ---
                 const newlyCompleted = simState.buildQueue.filter((item: QueueItem) => tickTime >= item.endTime);
                 if (newlyCompleted.length > 0) {
                     newlyCompleted.forEach((item: QueueItem) => {
@@ -114,13 +111,12 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
                     simState.buildQueue = simState.buildQueue.filter((item: QueueItem) => tickTime < item.endTime);
                 }
                 
-                // --- Process fleet missions (simplified for brevity) ---
                 const activeMissions: FleetMission[] = [];
                 simState.fleetMissions.forEach((mission: FleetMission) => {
-                    if (tickTime >= mission.returnTime) { // Fleet returns
+                    if (tickTime >= mission.returnTime) { 
                         offlineEvents.push(`🚀 Flota powróciła z misji [${mission.targetCoords}].`);
                         if (mission.missionType === MissionType.EXPEDITION) {
-                            const { message, finalFleet, finalLoot } = processExpeditionOutcome(mission, simState.shipLevels);
+                            const { message, finalFleet } = processExpeditionOutcome(mission, simState.shipLevels);
                             simState.messages.unshift(message);
                             for (const ship in finalFleet) {
                                 simState.fleet[ship as ShipType] = (simState.fleet[ship as ShipType] || 0) + (finalFleet[ship as ShipType] || 0);
@@ -137,12 +133,11 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
                 simState.fleetMissions = activeMissions;
             }
 
-            // --- Add summary message ---
             const summaryMessage: OfflineSummaryMessage = {
                 id: `msg-${now}-offline`, type: 'offline_summary', timestamp: now, isRead: false,
                 subject: 'Podsumowanie Offline',
                 duration: offlineSeconds,
-                events: offlineEvents.slice(0, 20), // Limit events to avoid huge message
+                events: offlineEvents.slice(0, 20),
             };
             if (offlineEvents.length > 0) {
               simState.messages.unshift(summaryMessage);
@@ -152,7 +147,6 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
             gameState = simState;
         }
 
-        // Always update save time, even if no processing happened
         gameState.lastSaveTime = now;
 
         return {

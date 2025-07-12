@@ -124,15 +124,6 @@ const getBoostNameForNotif = (boost: Omit<Boost, 'id' | 'duration'>) => {
     }
 }
 
-const getUserId = () => {
-    let userId = localStorage.getItem('cosmic-lord-user-id');
-    if (!userId) {
-        userId = crypto.randomUUID();
-        localStorage.setItem('cosmic-lord-user-id', userId);
-    }
-    return userId;
-};
-
 function App() {
   const [resources, setResources] = useState<Resources>(INITIAL_RESOURCES);
   const [buildings, setBuildings] = useState<BuildingLevels>(INITIAL_BUILDING_LEVELS);
@@ -175,8 +166,9 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(localStorage.getItem('cosmic-lord-token'));
 
-  const gameStateRef = useRef<GameState>();
+  const gameStateRef = useRef<GameState | undefined>();
 
   const showNotification = useCallback((message: string) => {
     setNotification(message);
@@ -202,18 +194,47 @@ function App() {
         spacePlague, lastSpacePlagueCheckTime, npcStates, awardedBonuses, debrisFields, colonies, inventory, activeBoosts,
         activeCostReduction, blackMarketHourlyIncome, lastBlackMarketIncomeCheck
     ]);
+
+    // Effect for Authentication
+    useEffect(() => {
+        const authenticate = async () => {
+            setIsLoading(true);
+            try {
+                const userId = localStorage.getItem('cosmic-lord-user-id');
+                const response = await fetch('/.netlify/functions/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId }),
+                });
+                if (!response.ok) throw new Error('Authentication failed');
+                const { token, userId: newUserId } = await response.json();
+                localStorage.setItem('cosmic-lord-token', token);
+                localStorage.setItem('cosmic-lord-user-id', newUserId);
+                setAuthToken(token);
+            } catch (err) {
+                setError('Nie udało się połączyć z serwerem autoryzacji.');
+                console.error(err);
+                setIsLoading(false);
+            }
+        };
+
+        if (!authToken) {
+            authenticate();
+        }
+    }, [authToken]);
   
     // Effect for Loading State from Server
     useEffect(() => {
         const fetchGameState = async () => {
             setIsLoading(true);
             setError(null);
-            const userId = getUserId();
             try {
                 const response = await fetch('/.netlify/functions/get-game-state', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId }),
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
                 });
 
                 if (!response.ok) {
@@ -269,21 +290,25 @@ function App() {
             }
         };
 
-        fetchGameState();
-    }, [showNotification]);
+        if (authToken) {
+            fetchGameState();
+        }
+    }, [authToken, showNotification]);
 
 
     // Effect for Auto-saving State to Server
     useEffect(() => {
         const saveInterval = setInterval(async () => {
-            if (gameStateRef.current && !isLoading && !error) {
+            if (gameStateRef.current && !isLoading && !error && authToken) {
                 setIsSaving(true);
-                const userId = getUserId();
                 try {
                     const response = await fetch('/.netlify/functions/save-game-state', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId, gameState: gameStateRef.current }),
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${authToken}`
+                        },
+                        body: JSON.stringify({ gameState: gameStateRef.current }),
                     });
                     if (!response.ok) {
                         console.error("Nie udało się zapisać stanu gry.");
@@ -297,7 +322,7 @@ function App() {
         }, 30000); // Save every 30 seconds
 
         return () => clearInterval(saveInterval);
-    }, [isLoading, error]);
+    }, [isLoading, error, authToken]);
   
   const handleArtifactChoice = useCallback((choice: AncientArtifactChoice) => {
     const now = Date.now();
@@ -479,19 +504,12 @@ const handleActivateBoost = useCallback((boostId: string) => {
     if (isLoading) return;
       
     const gameLoop = setInterval(() => {
-      const now = Date.now();
-      
       // Resource update
       setResources(prev => ({
         metal: Math.min(prev.metal + productions.metal / (3600 / (TICK_INTERVAL / 1000)), maxResources.metal),
         crystal: Math.min(prev.crystal + productions.crystal / (3600 / (TICK_INTERVAL / 1000)), maxResources.crystal),
         deuterium: Math.min(prev.deuterium + productions.deuterium / (3600 / (TICK_INTERVAL / 1000)), maxResources.deuterium),
       }));
-      
-      // No need to update the entire state here, just the UI-related parts.
-      // The authoritative state is on the server.
-      // This loop is now mostly for animating the resource counters.
-
     }, TICK_INTERVAL);
     return () => clearInterval(gameLoop);
   }, [isLoading, productions, maxResources]);
@@ -733,7 +751,17 @@ const handleActivateBoost = useCallback((boostId: string) => {
       }
   }, [npcStates, showNotification]);
 
-    if (isLoading) {
+    if (!authToken && !error) {
+        return (
+            <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center text-white">
+                <div className="text-4xl mb-4">🔑</div>
+                <h1 className="text-3xl font-bold text-cyan-300 animate-pulse">Uwierzytelnianie...</h1>
+                <p className="text-gray-400 mt-2">Zabezpieczanie połączenia z Twoim imperium.</p>
+            </div>
+        );
+    }
+    
+    if (isLoading && authToken) {
         return (
             <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center text-white">
                 <div className="text-4xl mb-4">🪐</div>
@@ -750,7 +778,7 @@ const handleActivateBoost = useCallback((boostId: string) => {
                 <h1 className="text-3xl font-bold text-red-500">Błąd Połączenia</h1>
                 <p className="text-gray-400 mt-2 text-center">Nie można załadować stanu gry z serwera.</p>
                 <p className="text-sm text-gray-500 mt-4 bg-gray-800 p-4 rounded-lg">{error}</p>
-                 <button onClick={() => window.location.reload()} className="mt-6 px-6 py-2 bg-cyan-600 hover:bg-cyan-500 rounded font-bold">Spróbuj ponownie</button>
+                 <button onClick={() => { localStorage.removeItem('cosmic-lord-token'); window.location.reload(); }} className="mt-6 px-6 py-2 bg-cyan-600 hover:bg-cyan-500 rounded font-bold">Spróbuj ponownie</button>
             </div>
         );
     }
