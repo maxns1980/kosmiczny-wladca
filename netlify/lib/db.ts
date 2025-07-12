@@ -1,29 +1,12 @@
-
-import { promises as fs } from 'fs';
-import path from 'path';
+import { getStore } from '@netlify/blobs';
 import { GameState } from './types';
 import { initialGameState } from './constants';
 import { findAndClaimEmptyPlanet } from './globalState';
 
-const dataDir = path.join('/tmp', 'cosmic-lord-data');
-
-const ensureDataDir = async () => {
-    try {
-        await fs.access(dataDir);
-    } catch {
-        await fs.mkdir(dataDir, { recursive: true });
-    }
-};
-
 export const getUserState = async (username: string): Promise<GameState | null> => {
-    await ensureDataDir();
-    const filePath = path.join(dataDir, `${username}.json`);
-    try {
-        const data = await fs.readFile(filePath, 'utf-8');
-        return JSON.parse(data) as GameState;
-    } catch (error) {
-        return null;
-    }
+    const store = getStore('userStates');
+    const state = await store.get(username, { type: 'json' });
+    return state ? (state as GameState) : null;
 };
 
 export const createUserState = async (username: string): Promise<GameState> => {
@@ -47,19 +30,14 @@ export const createUserState = async (username: string): Promise<GameState> => {
 };
 
 export const writeUserState = async (username: string, state: GameState): Promise<void> => {
-    await ensureDataDir();
-    const filePath = path.join(dataDir, `${username}.json`);
+    const store = getStore('userStates');
     state.lastSaveTime = Date.now();
-    await fs.writeFile(filePath, JSON.stringify(state, null, 2));
+    await store.setJSON(username, state);
 };
 
 export const userExists = async (username: string): Promise<boolean> => {
-    await ensureDataDir();
-    const filePath = path.join(dataDir, `${username}.json`);
-    try {
-        await fs.access(filePath);
-        return true;
-    } catch {
-        return false;
-    }
+    const store = getStore('userStates');
+    // .get() returns a value (even an empty one) for existing keys, or null if not found.
+    const state = await store.get(username);
+    return state !== null;
 };

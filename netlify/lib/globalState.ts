@@ -1,21 +1,9 @@
-
-import { promises as fs } from 'fs';
-import path from 'path';
+import { getStore } from '@netlify/blobs';
 import { GlobalState, NPCPersonality, NPCState } from './types';
 import { INITIAL_NPC_STATE } from './constants';
 
 const FAKE_PLAYER_NAMES = ['Zenith', 'Nova', 'Orion', 'Cygnus', 'Draco', 'Lyra', 'Aquila', 'Centurion', 'Void', 'Stalker', 'Pulsar', 'Goliath'];
-
-const dataDir = path.join('/tmp', 'cosmic-lord-data');
-const GLOBAL_STATE_PATH = path.join(dataDir, 'globalState.json');
-
-const ensureDataDir = async () => {
-    try {
-        await fs.access(dataDir);
-    } catch {
-        await fs.mkdir(dataDir, { recursive: true });
-    }
-};
+const WORLD_CREATION_TIME = 1672531200000; // Jan 1 2023 00:00:00 UTC
 
 const seededRandom = (seed: number) => {
     const x = Math.sin(seed) * 10000;
@@ -36,7 +24,6 @@ const createInitialWorld = (): GlobalState => {
         debrisFields: {},
         playerPlanets: {},
     };
-    const now = Date.now();
 
     const GALAXY = 1;
     for (let system = 1; system <= 50; system++) {
@@ -53,7 +40,7 @@ const createInitialWorld = (): GlobalState => {
 
                 state.npcStates[coords] = {
                     ...JSON.parse(JSON.stringify(INITIAL_NPC_STATE)),
-                    lastUpdateTime: now,
+                    lastUpdateTime: WORLD_CREATION_TIME,
                     name: FAKE_PLAYER_NAMES[nameIndex],
                     image: getPlanetImage(planetSeed * 4),
                     personality: personality
@@ -65,37 +52,42 @@ const createInitialWorld = (): GlobalState => {
 };
 
 export const getGlobalState = async (): Promise<GlobalState> => {
-    await ensureDataDir();
-    try {
-        const data = await fs.readFile(GLOBAL_STATE_PATH, 'utf-8');
-        return JSON.parse(data) as GlobalState;
-    } catch (error) {
-        console.log("Global state not found, creating initial world...");
-        const newWorld = createInitialWorld();
-        await writeGlobalState(newWorld);
-        return newWorld;
+    const store = getStore('gameState');
+    const worldState = await store.get('world', { type: 'json' });
+
+    if (worldState) {
+        return worldState as GlobalState;
     }
+
+    console.log("Global state blob not found, creating initial world...");
+    const newWorld = createInitialWorld();
+    await writeGlobalState(newWorld);
+    return newWorld;
 };
 
 export const writeGlobalState = async (state: GlobalState): Promise<void> => {
-    await ensureDataDir();
-    await fs.writeFile(GLOBAL_STATE_PATH, JSON.stringify(state, null, 2));
+    const store = getStore('gameState');
+    await store.setJSON('world', state);
 };
 
 export const findAndClaimEmptyPlanet = async (username: string): Promise<string> => {
     const globalState = await getGlobalState();
     
-    // Search for an empty planet within the generated systems
-    for (let s_offset = 0; s_offset < 50; s_offset++) {
-        const system = 1 + Math.floor(seededRandom(Date.now() + s_offset) * 50);
+    // Search for an empty planet systematically and deterministically
+    const GALAXY = 1;
+    for (let system = 1; system <= 50; system++) { // The world is created up to system 50
         for (let position = 1; position <= 15; position++) {
-            const coords = `1:${system}:${position}`;
+            const coords = `${GALAXY}:${system}:${position}`;
+            // Check if the coordinate is not taken by an NPC or another player
             if (!globalState.npcStates[coords] && !globalState.playerPlanets[coords]) {
+                // Claim it
                 globalState.playerPlanets[coords] = { owner: username, name: `Planeta Matka` };
                 await writeGlobalState(globalState);
                 return coords;
             }
         }
     }
-    throw new Error("Nie znaleziono wolnej planety! Skontaktuj się z administratorem.");
+
+    // If no planet is found (highly unlikely with the current settings)
+    throw new Error("Nie znaleziono wolnej planety! Wszechświat jest pełny.");
 };
