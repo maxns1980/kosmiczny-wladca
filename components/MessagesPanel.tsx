@@ -1,6 +1,5 @@
 
 
-
 import React, { useState, useEffect } from 'react';
 import { Message, SpyReport, BattleReport, MerchantStatus, MerchantInfoMessage, EspionageEventMessage, Loot, PirateMessage, PirateMercenaryStatus, ShipType, AsteroidImpactMessage, AsteroidImpactType, BuildingType, ResourceVeinMessage, AncientArtifactMessage, AncientArtifactChoice, ResearchType, SpacePlagueMessage, OfflineSummaryMessage, ExpeditionMessage, ExpeditionOutcomeType, ColonizationMessage, BattleMessage, SpyMessage, ExplorationMessage, ExplorationOutcomeType, BoostType, Boost } from '../types';
 import { ALL_GAME_OBJECTS, SHIPYARD_DATA, BUILDING_DATA, RESEARCH_DATA } from '../constants';

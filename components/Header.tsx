@@ -24,6 +24,7 @@ interface HeaderProps {
     onInfoClick: () => void;
     onEncyclopediaClick: () => void;
     onInventoryClick: () => void;
+    isSaving: boolean;
 }
 
 const formatNumber = (num: number): string => {
@@ -146,7 +147,7 @@ const ResourceDisplay: React.FC<{ label: string; resKey: keyof Resources; value:
 };
 
 const EnergyDisplay: React.FC<{ energy: HeaderProps['productions']['energy'] }> = ({ energy }) => {
-    const energyColor = energy.efficiency < 1 ? 'text-red-400' : 'text-cyan-400';
+    const energyColor = energy.efficiency < 1 ? 'text-red-400' : 'text-red-400';
     return (
          <div className="p-2 rounded-lg flex flex-col items-center shadow-md bg-gray-800 bg-opacity-70 border border-cyan-700">
             <div className="text-sm font-semibold text-gray-300 flex items-center">☀️ Energia</div>
@@ -174,7 +175,7 @@ const CreditsDisplay: React.FC<{ value: number; hourlyIncome: number }> = ({ val
     )
 }
 
-const Header: React.FC<HeaderProps> = ({ resources, productions, maxResources, credits, blackMarketHourlyIncome, resourceVeinBonus, inventory, activeBoosts, npcFleetMissions, onInfoClick, onEncyclopediaClick, onInventoryClick }) => {
+const Header: React.FC<HeaderProps> = ({ resources, productions, maxResources, credits, blackMarketHourlyIncome, resourceVeinBonus, inventory, activeBoosts, npcFleetMissions, onInfoClick, onEncyclopediaClick, onInventoryClick, isSaving }) => {
     const isProdBoosted = !!activeBoosts[BoostType.RESOURCE_PRODUCTION_BOOST];
 
     return (
@@ -191,6 +192,7 @@ const Header: React.FC<HeaderProps> = ({ resources, productions, maxResources, c
                          <button onClick={onEncyclopediaClick} className="text-2xl text-gray-400 hover:text-cyan-300 transition-colors duration-200" aria-label="Encyklopedia gry">
                             📖
                         </button>
+                         {isSaving && <div className="text-sm text-yellow-300 animate-pulse ml-2">Zapisywanie...</div>}
                     </div>
 
                     <div className="flex w-full xl:w-auto flex-wrap justify-center xl:justify-end items-center gap-2">

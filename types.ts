@@ -1,4 +1,5 @@
 
+
 export type View = 'buildings' | 'research' | 'shipyard' | 'defense' | 'fleet' | 'messages' | 'merchant' | 'galaxy' | 'fleet_upgrades';
 
 export enum BuildingType {
@@ -27,6 +28,7 @@ export enum ResearchType {
     COMBUSTION_DRIVE = 'COMBUSTION_DRIVE',
     SPY_TECHNOLOGY = 'SPY_TECHNOLOGY',
     IMPULSE_DRIVE = 'IMPULSE_DRIVE',
+    // New Technologies
     LASER_TECHNOLOGY = 'LASER_TECHNOLOGY',
     ION_TECHNOLOGY = 'ION_TECHNOLOGY',
     PLASMA_TECHNOLOGY = 'PLASMA_TECHNOLOGY',
@@ -47,12 +49,15 @@ export enum ShipType {
     HEAVY_CARGO_SHIP = 'HEAVY_CARGO_SHIP',
     SPY_PROBE = 'SPY_PROBE',
     RECYCLER = 'RECYCLER',
+    // Capital Ships
     CRUISER = 'CRUISER',
     BATTLESHIP = 'BATTLESHIP',
     DESTROYER = 'DESTROYER',
+    // Specialized Ships
     BOMBER = 'BOMBER',
     COLONY_SHIP = 'COLONY_SHIP',
     RESEARCH_VESSEL = 'RESEARCH_VESSEL',
+    // End-Game Units
     BATTLECRUISER = 'BATTLECRUISER',
     DEATHSTAR = 'DEATHSTAR',
 }
@@ -60,6 +65,7 @@ export enum ShipType {
 export enum DefenseType {
     ROCKET_LAUNCHER = 'ROCKET_LAUNCHER',
     LIGHT_LASER_CANNON = 'LIGHT_LASER_CANNON',
+    // New Defenses
     HEAVY_LASER_CANNON = 'HEAVY_LASER_CANNON',
     ION_CANNON = 'ION_CANNON',
     PLASMA_TURRET = 'PLASMA_TURRET',
@@ -98,10 +104,10 @@ export type QueueItemType = 'building' | 'research' | 'ship' | 'defense' | 'ship
 export interface QueueItem {
     id: GameObject;
     type: QueueItemType;
-    levelOrAmount: number;
+    levelOrAmount: number; // For buildings/research it's the target level, for ships/defenses it's the amount
     startTime: number;
     endTime: number;
-    buildTime: number;
+    buildTime: number; // total duration in seconds
 }
 
 export enum MissionType {
@@ -123,6 +129,7 @@ export interface FleetMission {
     returnTime: number;
     processedArrival: boolean;
     loot: Loot;
+    // New fields for exploration
     explorationEndTime?: number; 
     processedExploration?: boolean;
 }
@@ -160,7 +167,7 @@ export type CombatStats = {
 
 export interface BattleReport {
     id: string;
-    targetCoords: string;
+    targetCoords: string; // The coordinates where the battle took place
     attackerName: string;
     defenderName: string;
     isPlayerAttacker: boolean;
@@ -182,62 +189,289 @@ type BaseMessage = {
     subject: string;
 };
 
-export type SpyMessage = BaseMessage & { type: 'spy'; report: SpyReport; };
-export type BattleMessage = BaseMessage & { type: 'battle'; report: BattleReport; };
+export type SpyMessage = BaseMessage & {
+    type: 'spy';
+    report: SpyReport;
+};
 
-export enum MerchantStatus { INACTIVE = 'INACTIVE', INCOMING = 'INCOMING', ACTIVE = 'ACTIVE' }
-export type MerchantExchangeRates = { [key in keyof Resources]: { buy: number; sell: number }; };
-export interface MerchantState { status: MerchantStatus; arrivalTime: number; departureTime: number; rates: MerchantExchangeRates; }
-export type MerchantInfoMessage = BaseMessage & { type: 'merchant'; merchantStatus: MerchantStatus; eventTime: number; };
+export type BattleMessage = BaseMessage & {
+    type: 'battle';
+    report: BattleReport;
+};
 
-export type EspionageEventMessage = BaseMessage & { type: 'espionage_event'; spyCoords: string; spyName?: string; };
+// --- Merchant Types ---
+export enum MerchantStatus {
+    INACTIVE = 'INACTIVE',
+    INCOMING = 'INCOMING',
+    ACTIVE = 'ACTIVE',
+}
 
-export enum PirateMercenaryStatus { INACTIVE = 'INACTIVE', INCOMING = 'INCOMING', AVAILABLE = 'AVAILABLE', DEPARTED = 'DEPARTED' }
-export interface PirateMercenaryState { status: PirateMercenaryStatus; fleet: Fleet; hireCost: number; arrivalTime: number; departureTime: number; }
-export type PirateMessage = BaseMessage & { type: 'pirate'; pirateState: PirateMercenaryState; };
+export type MerchantExchangeRates = {
+    [key in keyof Resources]: { buy: number; sell: number };
+};
 
-export enum AsteroidImpactType { DAMAGE = 'DAMAGE', BONUS = 'BONUS' }
-export type AsteroidImpactMessage = BaseMessage & { type: 'asteroid_impact'; impactType: AsteroidImpactType; details: { buildingId?: BuildingType; newLevel?: number; resourceType?: keyof Omit<Resources, 'deuterium'>; amount?: number; } };
+export interface MerchantState {
+    status: MerchantStatus;
+    arrivalTime: number;
+    departureTime: number;
+    rates: MerchantExchangeRates;
+}
 
-export interface ResourceVeinBonus { active: boolean; resourceType: keyof Resources | null; endTime: number; bonusMultiplier: number; }
-export type ResourceVeinMessage = BaseMessage & { type: 'resource_vein'; resourceType: keyof Resources; status: 'activated' | 'expired'; bonusEndTime: number; };
+export type MerchantInfoMessage = BaseMessage & {
+    type: 'merchant';
+    merchantStatus: MerchantStatus;
+    eventTime: number; // Either arrival or departure time for countdown
+};
 
-export enum AncientArtifactStatus { INACTIVE = 'INACTIVE', AWAITING_CHOICE = 'AWAITING_CHOICE' }
-export enum AncientArtifactChoice { STUDY = 'STUDY', SELL = 'SELL', IGNORE = 'IGNORE' }
-export interface AncientArtifactState { status: AncientArtifactStatus; }
-export type AncientArtifactMessage = BaseMessage & { type: 'ancient_artifact'; choice: AncientArtifactChoice; outcome: { success?: boolean; technology?: ResearchType; newLevel?: number; creditsGained?: number; } };
+export type EspionageEventMessage = BaseMessage & {
+    type: 'espionage_event';
+    spyCoords: string;
+    spyName?: string;
+};
 
-export interface SpacePlagueState { active: boolean; infectedShip: ShipType | null; endTime: number; }
-export type SpacePlagueMessage = BaseMessage & { type: 'space_plague'; infectedShip: ShipType; status: 'activated' | 'expired'; };
+// --- Pirate Mercenary Types ---
+export enum PirateMercenaryStatus {
+    INACTIVE = 'INACTIVE',
+    INCOMING = 'INCOMING',
+    AVAILABLE = 'AVAILABLE',
+    DEPARTED = 'DEPARTED',
+}
 
-export type OfflineSummaryMessage = BaseMessage & { type: 'offline_summary'; duration: number; events: string[]; };
+export interface PirateMercenaryState {
+    status: PirateMercenaryStatus;
+    fleet: Fleet;
+    hireCost: number;
+    arrivalTime: number;
+    departureTime: number;
+}
 
-export enum ExpeditionOutcomeType { FIND_RESOURCES = 'FIND_RESOURCES', FIND_MONEY = 'FIND_MONEY', FIND_FLEET = 'FIND_FLEET', NOTHING = 'NOTHING', PIRATES = 'PIRATES', ALIENS = 'ALIENS', DELAY = 'DELAY', LOST = 'LOST' }
-export type ExpeditionMessage = BaseMessage & { type: 'expedition'; outcome: ExpeditionOutcomeType; details: { fleetSent: Fleet; resourcesGained?: Partial<Resources>; creditsGained?: number; fleetGained?: Partial<Fleet>; fleetLost?: Partial<Fleet>; delaySeconds?: number; } };
+export type PirateMessage = BaseMessage & {
+    type: 'pirate';
+    pirateState: PirateMercenaryState;
+};
 
-export interface Colony { id: string; name: string; creationTime: number; }
-export type ColonizationMessage = BaseMessage & { type: 'colonization'; coords: string; success: boolean; };
+// --- Asteroid Impact Event Types ---
+export enum AsteroidImpactType {
+    DAMAGE = 'DAMAGE',
+    BONUS = 'BONUS',
+}
 
-export enum BoostType { EXTRA_BUILD_QUEUE = 'EXTRA_BUILD_QUEUE', RESOURCE_PRODUCTION_BOOST = 'RESOURCE_PRODUCTION_BOOST', COMBAT_TECH_BOOST = 'COMBAT_TECH_BOOST', ARMOR_TECH_BOOST = 'ARMOR_TECH_BOOST', DRIVE_TECH_BOOST = 'DRIVE_TECH_BOOST', CONSTRUCTION_COST_REDUCTION = 'CONSTRUCTION_COST_REDUCTION', CONSTRUCTION_TIME_REDUCTION = 'CONSTRUCTION_TIME_REDUCTION', STORAGE_PROTECTION_BOOST = 'STORAGE_PROTECTION_BOOST', SECTOR_ACTIVITY_SCAN = 'SECTOR_ACTIVITY_SCAN', ABANDONED_COLONY_LOOT = 'ABANDONED_COLONY_LOOT' }
-export interface Boost { id: string; type: BoostType; level: number; duration: number; }
-export interface Inventory { boosts: Boost[]; }
-export interface ActiveBoosts { [BoostType.EXTRA_BUILD_QUEUE]?: { level: number; endTime: number; }; [BoostType.RESOURCE_PRODUCTION_BOOST]?: { level: number; endTime: number; }; [BoostType.COMBAT_TECH_BOOST]?: { level: number; endTime: number; }; [BoostType.ARMOR_TECH_BOOST]?: { level: number; endTime: number; }; [BoostType.DRIVE_TECH_BOOST]?: { level: number; endTime: number; }; [BoostType.STORAGE_PROTECTION_BOOST]?: { level: number; endTime: number; }; [BoostType.SECTOR_ACTIVITY_SCAN]?: { endTime: number; }; }
+export type AsteroidImpactMessage = BaseMessage & {
+    type: 'asteroid_impact';
+    impactType: AsteroidImpactType;
+    details: {
+        buildingId?: BuildingType;      // For DAMAGE
+        newLevel?: number;              // For DAMAGE
+        resourceType?: keyof Omit<Resources, 'deuterium'>; // For BONUS
+        amount?: number;                // For BONUS
+    }
+};
 
-export enum ExplorationOutcomeType { FIND_BOOST = 'FIND_BOOST', FIND_RESOURCES = 'FIND_RESOURCES', NOTHING = 'NOTHING', HOSTILES = 'HOSTILES', FIND_SHIP_WRECK = 'FIND_SHIP_WRECK' }
-export type ExplorationMessage = BaseMessage & { type: 'exploration'; outcome: ExplorationOutcomeType; details: { targetCoords: string; foundBoost?: Boost; resourcesGained?: Partial<Resources>; fleetLost?: Partial<Fleet>; fleetGained?: Partial<Fleet>; } };
+// --- Resource Vein Event Types ---
+export interface ResourceVeinBonus {
+    active: boolean;
+    resourceType: keyof Resources | null;
+    endTime: number;
+    bonusMultiplier: number;
+}
+
+export type ResourceVeinMessage = BaseMessage & {
+    type: 'resource_vein';
+    resourceType: keyof Resources;
+    status: 'activated' | 'expired';
+    bonusEndTime: number;
+};
+
+// --- Ancient Artifact Event Types ---
+export enum AncientArtifactStatus {
+    INACTIVE = 'INACTIVE',
+    AWAITING_CHOICE = 'AWAITING_CHOICE',
+}
+
+export enum AncientArtifactChoice {
+    STUDY = 'STUDY',
+    SELL = 'SELL',
+    IGNORE = 'IGNORE',
+}
+
+export interface AncientArtifactState {
+    status: AncientArtifactStatus;
+}
+
+export type AncientArtifactMessage = BaseMessage & {
+    type: 'ancient_artifact';
+    choice: AncientArtifactChoice;
+    outcome: {
+        success?: boolean;          // For STUDY
+        technology?: ResearchType;  // For STUDY success
+        newLevel?: number;          // For STUDY success
+        creditsGained?: number;       // For SELL
+    }
+};
+
+// --- Space Plague Event Types ---
+export interface SpacePlagueState {
+    active: boolean;
+    infectedShip: ShipType | null;
+    endTime: number;
+}
+
+export type SpacePlagueMessage = BaseMessage & {
+    type: 'space_plague';
+    infectedShip: ShipType;
+    status: 'activated' | 'expired';
+};
+
+// --- Offline Summary Type ---
+export type OfflineSummaryMessage = BaseMessage & {
+    type: 'offline_summary';
+    duration: number; // in seconds
+    events: string[];
+};
+
+// --- Expedition Types ---
+export enum ExpeditionOutcomeType {
+    FIND_RESOURCES = 'FIND_RESOURCES',
+    FIND_MONEY = 'FIND_MONEY',
+    FIND_FLEET = 'FIND_FLEET',
+    NOTHING = 'NOTHING',
+    PIRATES = 'PIRATES',
+    ALIENS = 'ALIENS',
+    DELAY = 'DELAY',
+    LOST = 'LOST',
+}
+
+export type ExpeditionMessage = BaseMessage & {
+    type: 'expedition';
+    outcome: ExpeditionOutcomeType;
+    details: {
+        fleetSent: Fleet;
+        resourcesGained?: Partial<Resources>;
+        creditsGained?: number;
+        fleetGained?: Partial<Fleet>;
+        fleetLost?: Partial<Fleet>;
+        delaySeconds?: number;
+    }
+};
+
+// --- Colonization Types ---
+export interface Colony {
+    id: string; // coords
+    name: string;
+    creationTime: number;
+}
+
+export type ColonizationMessage = BaseMessage & {
+    type: 'colonization';
+    coords: string;
+    success: boolean;
+};
+
+// --- Boosts & Inventory ---
+export enum BoostType {
+    EXTRA_BUILD_QUEUE = 'EXTRA_BUILD_QUEUE',
+    RESOURCE_PRODUCTION_BOOST = 'RESOURCE_PRODUCTION_BOOST',
+    COMBAT_TECH_BOOST = 'COMBAT_TECH_BOOST',
+    ARMOR_TECH_BOOST = 'ARMOR_TECH_BOOST',
+    DRIVE_TECH_BOOST = 'DRIVE_TECH_BOOST',
+    CONSTRUCTION_COST_REDUCTION = 'CONSTRUCTION_COST_REDUCTION',
+    CONSTRUCTION_TIME_REDUCTION = 'CONSTRUCTION_TIME_REDUCTION',
+    STORAGE_PROTECTION_BOOST = 'STORAGE_PROTECTION_BOOST',
+    SECTOR_ACTIVITY_SCAN = 'SECTOR_ACTIVITY_SCAN',
+    ABANDONED_COLONY_LOOT = 'ABANDONED_COLONY_LOOT',
+}
+
+export interface Boost {
+    id: string;
+    type: BoostType;
+    level: number; // For queue: 2 or 3. For production: 20 or 30. For tech: 1 or 2. For drive: 20. For cost reduction: 25. For time reduction: 1 or 2. For storage: 50. For scan/loot: 1.
+    duration: number; // in seconds
+}
+
+export interface Inventory {
+    boosts: Boost[];
+}
+
+export interface ActiveBoosts {
+    [BoostType.EXTRA_BUILD_QUEUE]?: {
+        level: number; // The total number of queues (e.g., 2 or 3)
+        endTime: number;
+    };
+    [BoostType.RESOURCE_PRODUCTION_BOOST]?: {
+        level: number; // The percentage boost (e.g., 20 or 30)
+        endTime: number;
+    };
+    [BoostType.COMBAT_TECH_BOOST]?: {
+        level: number; // The technology level boost (e.g., 1 or 2)
+        endTime: number;
+    };
+    [BoostType.ARMOR_TECH_BOOST]?: {
+        level: number; // The technology level boost (e.g., 1 or 2)
+        endTime: number;
+    };
+    [BoostType.DRIVE_TECH_BOOST]?: {
+        level: number; // The percentage speed boost (e.g., 20)
+        endTime: number;
+    };
+    [BoostType.STORAGE_PROTECTION_BOOST]?: {
+        level: number; // The percentage protection (e.g., 50)
+        endTime: number;
+    };
+    [BoostType.SECTOR_ACTIVITY_SCAN]?: {
+        endTime: number;
+    };
+}
+
+
+// --- Exploration Message ---
+export enum ExplorationOutcomeType {
+    FIND_BOOST = 'FIND_BOOST',
+    FIND_RESOURCES = 'FIND_RESOURCES',
+    NOTHING = 'NOTHING',
+    HOSTILES = 'HOSTILES',
+    FIND_SHIP_WRECK = 'FIND_SHIP_WRECK',
+}
+
+export type ExplorationMessage = BaseMessage & {
+    type: 'exploration';
+    outcome: ExplorationOutcomeType;
+    details: {
+        targetCoords: string;
+        foundBoost?: Boost;
+        resourcesGained?: Partial<Resources>;
+        fleetLost?: Partial<Fleet>;
+        fleetGained?: Partial<Fleet>;
+    }
+};
+
 
 export type Message = SpyMessage | BattleMessage | MerchantInfoMessage | EspionageEventMessage | PirateMessage | AsteroidImpactMessage | ResourceVeinMessage | AncientArtifactMessage | SpacePlagueMessage | OfflineSummaryMessage | ExpeditionMessage | ColonizationMessage | ExplorationMessage;
 
 export type DebrisField = Partial<Resources>;
 
-export enum NPCPersonality { ECONOMIC = 'ECONOMIC', AGGRESSIVE = 'AGGRESSIVE', BALANCED = 'BALANCED' }
-export interface NPCState { resources: Resources; buildings: BuildingLevels; research: ResearchLevels; fleet: Fleet; defenses: Defenses; lastUpdateTime: number; personality: NPCPersonality; name: string; image: string; }
+// --- NPC Types ---
+export enum NPCPersonality {
+    ECONOMIC = 'ECONOMIC',
+    AGGRESSIVE = 'AGGRESSIVE',
+    BALANCED = 'BALANCED',
+}
+
+export interface NPCState {
+    resources: Resources;
+    buildings: BuildingLevels;
+    research: ResearchLevels;
+    fleet: Fleet;
+    defenses: Defenses;
+    lastUpdateTime: number;
+    personality: NPCPersonality;
+    name: string;
+    image: string;
+}
+
 export type NPCStates = Record<string, NPCState>;
 
-
-// Main Game State Object
-export interface GameState {
-    username: string;
+// --- Game State ---
+export type GameState = {
     resources: Resources;
     buildings: BuildingLevels;
     research: ResearchLevels;
@@ -270,4 +504,4 @@ export interface GameState {
     activeCostReduction: number;
     blackMarketHourlyIncome: number;
     lastBlackMarketIncomeCheck: number;
-}
+};

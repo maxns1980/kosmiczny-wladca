@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
     BuildingType, Resources, BuildingLevels, ResearchLevels, ResearchType, Fleet, QueueItem, QueueItemType, GameObject, 
     Defenses, FleetMission, MissionType, DefenseType, ShipType, Message, SpyReport, BattleReport, Loot, 
@@ -10,7 +10,7 @@ import {
     SpacePlagueState, SpacePlagueMessage, OfflineSummaryMessage,
     ExpeditionMessage, ExpeditionOutcomeType, CombatStats,
     Colony, ColonizationMessage,
-    Inventory, ActiveBoosts, BoostType, Boost, ExplorationMessage, ExplorationOutcomeType
+    Inventory, ActiveBoosts, BoostType, Boost, ExplorationMessage, ExplorationOutcomeType, GameState
 } from './types';
 import { 
     INITIAL_RESOURCES, INITIAL_BUILDING_LEVELS, INITIAL_RESEARCH_LEVELS, INITIAL_FLEET, INITIAL_DEFENSES, 
@@ -18,7 +18,7 @@ import {
     NPC_STATES_KEY, INITIAL_NPC_FLEET_MISSIONS, INITIAL_SHIP_LEVELS, SHIP_UPGRADE_DATA, INITIAL_DEBRIS_FIELDS, 
     DEBRIS_FIELD_RECOVERY_RATE, PLAYER_HOME_COORDS, PROTECTED_RESOURCES_FACTOR, INITIAL_PIRATE_MERCENARY_STATE, 
     INITIAL_RESOURCE_VEIN_BONUS, INITIAL_ANCIENT_ARTIFACT_STATE, INITIAL_SPACE_PLAGUE_STATE, INITIAL_COLONIES, COLONY_INCOME_BONUS_PER_HOUR,
-    INITIAL_INVENTORY, INITIAL_ACTIVE_BOOSTS
+    INITIAL_INVENTORY, INITIAL_ACTIVE_BOOSTS, BASE_STORAGE_CAPACITY
 } from './constants';
 import Header from './components/Header';
 import BuildingsPanel from './components/BuildingsPanel';
@@ -37,58 +37,6 @@ import AncientArtifactModal from './components/AncientArtifactModal';
 import InfoModal from './components/InfoModal';
 import EncyclopediaModal from './components/EncyclopediaModal';
 import InventoryModal from './components/InventoryModal';
-import Auth from './components/Auth';
-
-// --- State Persistence ---
-const SAVE_GAME_KEY_PREFIX = 'cosmic-lord-game-state-';
-
-type GameState = {
-    resources: Resources;
-    buildings: BuildingLevels;
-    research: ResearchLevels;
-    shipLevels: ShipLevels;
-    fleet: Fleet;
-    defenses: Defenses;
-    fleetMissions: FleetMission[];
-    npcFleetMissions: NPCFleetMission[];
-    messages: Message[];
-    buildQueue: QueueItem[];
-    credits: number;
-    merchantState: MerchantState;
-    lastMerchantCheckTime: number;
-    pirateMercenaryState: PirateMercenaryState;
-    lastPirateCheckTime: number;
-    lastAsteroidCheckTime: number;
-    resourceVeinBonus: ResourceVeinBonus;
-    lastResourceVeinCheckTime: number;
-    ancientArtifactState: AncientArtifactState;
-    lastArtifactCheckTime: number;
-    spacePlague: SpacePlagueState;
-    lastSpacePlagueCheckTime: number;
-    lastSaveTime: number;
-    npcStates: NPCStates;
-    awardedBonuses: BuildingType[];
-    debrisFields: Record<string, DebrisField>;
-    colonies: Colony[];
-    inventory: Inventory;
-    activeBoosts: ActiveBoosts;
-    activeCostReduction: number;
-    blackMarketHourlyIncome: number;
-    lastBlackMarketIncomeCheck: number;
-};
-
-const loadState = (username: string): GameState | null => {
-    try {
-        const serializedState = localStorage.getItem(SAVE_GAME_KEY_PREFIX + username);
-        if (serializedState === null) {
-            return null;
-        }
-        return JSON.parse(serializedState);
-    } catch (err) {
-        console.error("Could not load state from localStorage", err);
-        return null;
-    }
-};
 
 // --- Calculation Helpers (extracted for reuse) ---
 const formatTime = (seconds: number) => {
@@ -104,9 +52,9 @@ const formatNumber = (num: number): string => {
 };
 
 const calculateMaxResources = (buildings: BuildingLevels): Resources => {
-    const metalCapacity = BUILDING_DATA[BuildingType.METAL_STORAGE].capacity?.(buildings[BuildingType.METAL_STORAGE]) ?? 0;
-    const crystalCapacity = BUILDING_DATA[BuildingType.CRYSTAL_STORAGE].capacity?.(buildings[BuildingType.CRYSTAL_STORAGE]) ?? 0;
-    const deuteriumCapacity = BUILDING_DATA[BuildingType.DEUTERIUM_TANK].capacity?.(buildings[BuildingType.DEUTERIUM_TANK]) ?? 0;
+    const metalCapacity = BUILDING_DATA[BuildingType.METAL_STORAGE].capacity?.(buildings[BuildingType.METAL_STORAGE]) ?? BASE_STORAGE_CAPACITY;
+    const crystalCapacity = BUILDING_DATA[BuildingType.CRYSTAL_STORAGE].capacity?.(buildings[BuildingType.CRYSTAL_STORAGE]) ?? BASE_STORAGE_CAPACITY;
+    const deuteriumCapacity = BUILDING_DATA[BuildingType.DEUTERIUM_TANK].capacity?.(buildings[BuildingType.DEUTERIUM_TANK]) ?? BASE_STORAGE_CAPACITY;
 
     return {
       metal: metalCapacity,
@@ -162,170 +110,6 @@ const calculateProductions = (buildings: BuildingLevels, resourceVeinBonus: Reso
     };
 };
 
-const getUnitsCost = (units: Partial<Fleet | Defenses>): Resources => {
-    let cost: Resources = { metal: 0, crystal: 0, deuterium: 0 };
-    for (const [unitId, count] of Object.entries(units)) {
-        if (!count || count === 0) continue;
-        const unitData = ALL_GAME_OBJECTS[unitId as keyof typeof ALL_GAME_OBJECTS];
-        const unitCost = unitData.cost(1);
-        cost.metal += unitCost.metal * count;
-        cost.crystal += unitCost.crystal * count;
-        cost.deuterium += (unitCost.deuterium || 0) * count;
-    }
-    return cost;
-}
-
-const getFleetValue = (fleet: Fleet, shipLevels: ShipLevels): number => {
-    let value = 0;
-    for (const [shipId, count] of Object.entries(fleet)) {
-        if (!count || count === 0) continue;
-        const shipData = SHIPYARD_DATA[shipId as ShipType];
-        const shipLevel = shipLevels[shipId as ShipType] || 0;
-        const cost = shipData.cost(1);
-        const shipValue = (cost.metal + cost.crystal + cost.deuterium) * (1 + shipLevel * 0.1);
-        value += shipValue * count;
-    }
-    return value;
-};
-
-const calculateCombatStats = (
-    baseStats: CombatStats,
-    research: ResearchLevels,
-    activeBoosts: ActiveBoosts,
-    upgradeLevel: number = 0,
-    isPlagued: boolean = false
-): CombatStats => {
-    const weaponTechLevel = (research[ResearchType.WEAPON_TECHNOLOGY] || 0) + (activeBoosts[BoostType.COMBAT_TECH_BOOST]?.level || 0);
-    const armorTechLevel = (research[ResearchType.ARMOR_TECHNOLOGY] || 0) + (activeBoosts[BoostType.ARMOR_TECH_BOOST]?.level || 0);
-    
-    let finalAttack = baseStats.attack * (1 + weaponTechLevel * 0.1) * (1 + upgradeLevel * 0.1);
-    if (isPlagued) {
-        finalAttack *= 0.8;
-    }
-
-    const finalShield = baseStats.shield * (1 + (research[ResearchType.SHIELDING_TECHNOLOGY] || 0) * 0.1) * (1 + upgradeLevel * 0.1);
-    const finalStructuralIntegrity = baseStats.structuralIntegrity * (1 + armorTechLevel * 0.1) * (1 + upgradeLevel * 0.1);
-
-    return {
-        attack: finalAttack,
-        shield: finalShield,
-        structuralIntegrity: finalStructuralIntegrity,
-    };
-};
-
-const calculateTotalPower = (
-    units: Fleet | Defenses, 
-    research: ResearchLevels, 
-    shipLevels: ShipLevels | null, // null for defenses
-    spacePlague?: SpacePlagueState,
-    activeBoosts: ActiveBoosts = {}
-): number => {
-    let totalPower = 0;
-    for (const [unitId, count] of Object.entries(units)) {
-        if (!count || count <= 0) continue;
-        const unitData = ALL_GAME_OBJECTS[unitId as keyof typeof ALL_GAME_OBJECTS];
-        
-        // Type guard to ensure we are dealing with a combat unit
-        if (!('attack' in unitData)) {
-            continue;
-        }
-
-        const isShip = "cargoCapacity" in unitData;
-
-        const upgradeLevel = (isShip && shipLevels) ? shipLevels[unitId as ShipType] || 0 : 0;
-        const isPlagued = (isShip && spacePlague) ? spacePlague.active && spacePlague.infectedShip === unitId : false;
-
-        const finalStats = calculateCombatStats(unitData, research, activeBoosts, upgradeLevel, isPlagued);
-        
-        const unitPower = finalStats.attack + finalStats.shield + (finalStats.structuralIntegrity / 10);
-        totalPower += unitPower * count;
-    }
-    return totalPower;
-};
-
-
-// --- EXPEDITION LOGIC ---
-const processExpeditionOutcome = (mission: FleetMission, shipLevels: ShipLevels): { message: ExpeditionMessage, finalFleet: Fleet, finalLoot: Loot } => {
-    const fleetValue = getFleetValue(mission.fleet, shipLevels);
-    const rand = Math.random();
-
-    let outcome: ExpeditionOutcomeType;
-    const details: ExpeditionMessage['details'] = { fleetSent: mission.fleet };
-    let finalFleet: Fleet = { ...mission.fleet };
-    let finalLoot: Loot = {};
-
-    if (rand < 0.15) { // 15% find resources
-        outcome = ExpeditionOutcomeType.FIND_RESOURCES;
-        const resourceGain = {
-            metal: Math.floor(Math.random() * fleetValue * 0.1),
-            crystal: Math.floor(Math.random() * fleetValue * 0.05),
-            deuterium: Math.floor(Math.random() * fleetValue * 0.02),
-        };
-        details.resourcesGained = resourceGain;
-        finalLoot = { ...finalLoot, ...resourceGain };
-    } else if (rand < 0.20) { // 5% find credits
-        outcome = ExpeditionOutcomeType.FIND_MONEY;
-        const creditsGained = Math.floor(fleetValue * 0.2 + Math.random() * 5000);
-        details.creditsGained = creditsGained;
-        finalLoot = { ...finalLoot, credits: creditsGained };
-    } else if (rand < 0.25) { // 5% find fleet
-        outcome = ExpeditionOutcomeType.FIND_FLEET;
-        const foundFleet: Fleet = {};
-        if (Math.random() < 0.5) foundFleet[ShipType.LIGHT_FIGHTER] = Math.ceil(fleetValue / 20000);
-        else foundFleet[ShipType.CARGO_SHIP] = Math.ceil(fleetValue / 30000);
-        details.fleetGained = foundFleet;
-        for (const ship in foundFleet) {
-            finalFleet[ship as ShipType] = (finalFleet[ship as ShipType] || 0) + (foundFleet[ship as ShipType] || 0);
-        }
-    } else if (rand < 0.50) { // 25% nothing
-        outcome = ExpeditionOutcomeType.NOTHING;
-    } else if (rand < 0.65) { // 15% pirates
-        outcome = ExpeditionOutcomeType.PIRATES;
-        const lossPercent = 0.1 + Math.random() * 0.2; // 10-30% loss
-        details.fleetLost = {};
-        for (const ship in finalFleet) {
-            const losses = Math.ceil((finalFleet[ship as ShipType] || 0) * lossPercent);
-            if (losses > 0) {
-                details.fleetLost[ship as ShipType] = losses;
-                finalFleet[ship as ShipType] = (finalFleet[ship as ShipType] || 0) - losses;
-                if (finalFleet[ship as ShipType]! < 0) finalFleet[ship as ShipType] = 0;
-            }
-        }
-    } else if (rand < 0.75) { // 10% aliens
-        outcome = ExpeditionOutcomeType.ALIENS;
-        const lossPercent = 0.2 + Math.random() * 0.4; // 20-60% loss
-        details.fleetLost = {};
-         for (const ship in finalFleet) {
-            const losses = Math.ceil((finalFleet[ship as ShipType] || 0) * lossPercent);
-            if (losses > 0) {
-                details.fleetLost[ship as ShipType] = losses;
-                finalFleet[ship as ShipType] = (finalFleet[ship as ShipType] || 0) - losses;
-                 if (finalFleet[ship as ShipType]! < 0) finalFleet[ship as ShipType] = 0;
-            }
-        }
-    } else if (rand < 0.90) { // 15% delay
-        outcome = ExpeditionOutcomeType.DELAY;
-        details.delaySeconds = 30 * 60 + Math.random() * 60 * 60; // 30-90 min delay
-        // Note: Actual delay is handled by extending return time, this is for the message
-    } else { // 10% lost
-        outcome = ExpeditionOutcomeType.LOST;
-        details.fleetLost = { ...finalFleet };
-        finalFleet = {};
-    }
-
-    const message: ExpeditionMessage = {
-        id: `msg-${Date.now()}-exp`,
-        type: 'expedition',
-        timestamp: Date.now(),
-        isRead: false,
-        subject: `Raport z Wyprawy [${mission.targetCoords}]`,
-        outcome,
-        details,
-    };
-
-    return { message, finalFleet, finalLoot };
-};
-
 const getBoostNameForNotif = (boost: Omit<Boost, 'id' | 'duration'>) => {
     switch(boost.type) {
         case BoostType.EXTRA_BUILD_QUEUE: return `Dodatkowa kolejka budowy (${boost.level})`;
@@ -339,9 +123,16 @@ const getBoostNameForNotif = (boost: Omit<Boost, 'id' | 'duration'>) => {
     }
 }
 
-function App() {
-  const [currentUser, setCurrentUser] = useState<string | null>(null);
+const getUserId = () => {
+    let userId = localStorage.getItem('cosmic-lord-user-id');
+    if (!userId) {
+        userId = crypto.randomUUID();
+        localStorage.setItem('cosmic-lord-user-id', userId);
+    }
+    return userId;
+};
 
+function App() {
   const [resources, setResources] = useState<Resources>(INITIAL_RESOURCES);
   const [buildings, setBuildings] = useState<BuildingLevels>(INITIAL_BUILDING_LEVELS);
   const [research, setResearch] = useState<ResearchLevels>(INITIAL_RESEARCH_LEVELS);
@@ -353,23 +144,23 @@ function App() {
   const [npcFleetMissions, setNpcFleetMissions] = useState<NPCFleetMission[]>(INITIAL_NPC_FLEET_MISSIONS);
   const [messages, setMessages] = useState<Message[]>([]);
   const [buildQueue, setBuildQueue] = useState<QueueItem[]>([]);
-  const [credits, setCredits] = useState<number>(10000);
+  const [credits, setCredits] = useState<number>(0);
   const [merchantState, setMerchantState] = useState<MerchantState>(INITIAL_MERCHANT_STATE);
-  const [lastMerchantCheckTime, setLastMerchantCheckTime] = useState<number>(Date.now());
+  const [lastMerchantCheckTime, setLastMerchantCheckTime] = useState<number>(0);
   const [pirateMercenaryState, setPirateMercenaryState] = useState<PirateMercenaryState>(INITIAL_PIRATE_MERCENARY_STATE);
-  const [lastPirateCheckTime, setLastPirateCheckTime] = useState<number>(Date.now());
-  const [lastAsteroidCheckTime, setLastAsteroidCheckTime] = useState<number>(Date.now());
+  const [lastPirateCheckTime, setLastPirateCheckTime] = useState<number>(0);
+  const [lastAsteroidCheckTime, setLastAsteroidCheckTime] = useState<number>(0);
   const [resourceVeinBonus, setResourceVeinBonus] = useState<ResourceVeinBonus>(INITIAL_RESOURCE_VEIN_BONUS);
-  const [lastResourceVeinCheckTime, setLastResourceVeinCheckTime] = useState<number>(Date.now());
+  const [lastResourceVeinCheckTime, setLastResourceVeinCheckTime] = useState<number>(0);
   const [ancientArtifactState, setAncientArtifactState] = useState<AncientArtifactState>(INITIAL_ANCIENT_ARTIFACT_STATE);
-  const [lastArtifactCheckTime, setLastArtifactCheckTime] = useState<number>(Date.now());
+  const [lastArtifactCheckTime, setLastArtifactCheckTime] = useState<number>(0);
   const [spacePlague, setSpacePlague] = useState<SpacePlagueState>(INITIAL_SPACE_PLAGUE_STATE);
-  const [lastSpacePlagueCheckTime, setLastSpacePlagueCheckTime] = useState<number>(Date.now());
+  const [lastSpacePlagueCheckTime, setLastSpacePlagueCheckTime] = useState<number>(0);
   const [inventory, setInventory] = useState<Inventory>(INITIAL_INVENTORY);
   const [activeBoosts, setActiveBoosts] = useState<ActiveBoosts>(INITIAL_ACTIVE_BOOSTS);
   const [activeCostReduction, setActiveCostReduction] = useState<number>(0);
   const [blackMarketHourlyIncome, setBlackMarketHourlyIncome] = useState<number>(0);
-  const [lastBlackMarketIncomeCheck, setLastBlackMarketIncomeCheck] = useState<number>(Date.now());
+  const [lastBlackMarketIncomeCheck, setLastBlackMarketIncomeCheck] = useState<number>(0);
   const [notification, setNotification] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<View>('buildings');
   const [fleetTarget, setFleetTarget] = useState<{coords: string, mission: MissionType} | null>(null);
@@ -380,328 +171,132 @@ function App() {
   const [isEncyclopediaOpen, setIsEncyclopediaOpen] = useState(false);
   const [isInventoryOpen, setIsInventoryOpen] = useState(false);
   
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const gameStateRef = useRef<GameState>();
+
   const showNotification = useCallback((message: string) => {
     setNotification(message);
     setTimeout(() => setNotification(null), 4000);
   }, []);
-  
-  const resetGameState = useCallback(() => {
-    setResources(INITIAL_RESOURCES);
-    setBuildings(INITIAL_BUILDING_LEVELS);
-    setResearch(INITIAL_RESEARCH_LEVELS);
-    setShipLevels(INITIAL_SHIP_LEVELS);
-    setFleet(INITIAL_FLEET);
-    setDefenses(INITIAL_DEFENSES);
-    setColonies(INITIAL_COLONIES);
-    setFleetMissions([]);
-    setNpcFleetMissions(INITIAL_NPC_FLEET_MISSIONS);
-    setMessages([]);
-    setBuildQueue([]);
-    setCredits(10000);
-    setMerchantState(INITIAL_MERCHANT_STATE);
-    setLastMerchantCheckTime(Date.now());
-    setPirateMercenaryState(INITIAL_PIRATE_MERCENARY_STATE);
-    setLastPirateCheckTime(Date.now());
-    setLastAsteroidCheckTime(Date.now());
-    setResourceVeinBonus(INITIAL_RESOURCE_VEIN_BONUS);
-    setLastResourceVeinCheckTime(Date.now());
-    setAncientArtifactState(INITIAL_ANCIENT_ARTIFACT_STATE);
-    setLastArtifactCheckTime(Date.now());
-    setSpacePlague(INITIAL_SPACE_PLAGUE_STATE);
-    setLastSpacePlagueCheckTime(Date.now());
-    setInventory(INITIAL_INVENTORY);
-    setActiveBoosts(INITIAL_ACTIVE_BOOSTS);
-    setActiveCostReduction(0);
-    setBlackMarketHourlyIncome(0);
-    setLastBlackMarketIncomeCheck(Date.now());
-    setAwardedBonuses([]);
-    setDebrisFields(INITIAL_DEBRIS_FIELDS);
-    // NPC state is global and loaded separately, so not reset here.
-  }, []);
 
-  const runOfflineCalcs = useCallback((savedState: GameState) => {
-        const offlineTimeMs = Date.now() - savedState.lastSaveTime;
-        if (offlineTimeMs < 5000) { // Not offline long enough
-            // Just load the state as is
-            setResources(savedState.resources);
-            setBuildings(savedState.buildings);
-            setResearch(savedState.research);
-            setShipLevels(savedState.shipLevels);
-            setFleet(savedState.fleet);
-            setDefenses(savedState.defenses);
-            setFleetMissions(savedState.fleetMissions);
-            setNpcFleetMissions(savedState.npcFleetMissions);
-            setMessages(savedState.messages);
-            setBuildQueue(savedState.buildQueue);
-            setCredits(savedState.credits);
-            setMerchantState(savedState.merchantState);
-            setLastMerchantCheckTime(savedState.lastMerchantCheckTime);
-            setPirateMercenaryState(savedState.pirateMercenaryState);
-            setLastPirateCheckTime(savedState.lastPirateCheckTime);
-            setLastAsteroidCheckTime(savedState.lastAsteroidCheckTime);
-            setResourceVeinBonus(savedState.resourceVeinBonus);
-            setLastResourceVeinCheckTime(savedState.lastResourceVeinCheckTime);
-            setAncientArtifactState(savedState.ancientArtifactState);
-            setLastArtifactCheckTime(savedState.lastArtifactCheckTime);
-            setSpacePlague(savedState.spacePlague);
-            setLastSpacePlagueCheckTime(savedState.lastSpacePlagueCheckTime);
-            setNpcStates(savedState.npcStates);
-            setAwardedBonuses(savedState.awardedBonuses);
-            setDebrisFields(savedState.debrisFields);
-            setColonies(savedState.colonies);
-            setInventory(savedState.inventory);
-            setActiveBoosts(savedState.activeBoosts);
-            setActiveCostReduction(savedState.activeCostReduction);
-            setBlackMarketHourlyIncome(savedState.blackMarketHourlyIncome);
-            setLastBlackMarketIncomeCheck(savedState.lastBlackMarketIncomeCheck);
-            return;
-        }
-
-        const offlineSeconds = Math.floor(offlineTimeMs / 1000);
-        showNotification(`Przetwarzanie postępu offline (${formatTime(offlineSeconds)})...`);
-
-        let simState: GameState = JSON.parse(JSON.stringify(savedState));
-        const offlineEvents: string[] = [];
-        let simBlackMarketIncome = simState.blackMarketHourlyIncome || 0;
-
-        for (let i = 0; i < offlineSeconds; i++) {
-            const now = simState.lastSaveTime + (i + 1) * 1000;
-            const simProductions = calculateProductions(simState.buildings, simState.resourceVeinBonus, simState.colonies, simState.activeBoosts);
-            const simMaxResources = calculateMaxResources(simState.buildings);
-
-            simState.resources.metal = Math.min(simMaxResources.metal, simState.resources.metal + simProductions.metal / 3600);
-            simState.resources.crystal = Math.min(simMaxResources.crystal, simState.resources.crystal + simProductions.crystal / 3600);
-            simState.resources.deuterium = Math.min(simMaxResources.deuterium, simState.resources.deuterium + simProductions.deuterium / 3600);
-            
-            if (now - simState.lastBlackMarketIncomeCheck >= 3600 * 1000) {
-                simState.lastBlackMarketIncomeCheck = now;
-                const blackMarketLevel = simState.buildings[BuildingType.BLACK_MARKET];
-                if (blackMarketLevel > 0) {
-                    const minIncome = 50 * Math.pow(1.1, blackMarketLevel - 1);
-                    const maxIncome = 200 * Math.pow(1.1, blackMarketLevel - 1);
-                    simBlackMarketIncome = minIncome + Math.random() * (maxIncome - minIncome);
-                    offlineEvents.push(`💹 Stawka Czarnego Rynku zaktualizowana do ${formatNumber(simBlackMarketIncome)}/h.`);
-                } else {
-                    simBlackMarketIncome = 0;
-                }
-            }
-            simState.credits += simBlackMarketIncome / 3600;
-
-            const newlyCompleted = simState.buildQueue.filter((item: QueueItem) => now >= item.endTime);
-            if (newlyCompleted.length > 0) {
-                newlyCompleted.forEach((item: QueueItem) => {
-                    const info = ALL_GAME_OBJECTS[item.id as keyof typeof ALL_GAME_OBJECTS];
-                    offlineEvents.push(`✅ Ukończono: ${info.name} ${item.type.match(/ship|defense/) ? 'zbudowano' : `poz. ${item.levelOrAmount}`}`);
-                    if (item.type === 'building') simState.buildings[item.id as BuildingType] = item.levelOrAmount;
-                    else if (item.type === 'research') simState.research[item.id as ResearchType] = item.levelOrAmount;
-                    else if (item.type === 'ship_upgrade') simState.shipLevels[item.id as ShipType] = item.levelOrAmount;
-                    else if (item.type === 'ship') simState.fleet[item.id as ShipType] = (simState.fleet[item.id as ShipType] || 0) + item.levelOrAmount;
-                    else if (item.type === 'defense') simState.defenses[item.id as DefenseType] = (simState.defenses[item.id as DefenseType] || 0) + item.levelOrAmount;
-                });
-                simState.buildQueue = simState.buildQueue.filter((item: QueueItem) => now < item.endTime);
-            }
-            
-            const activeMissions: FleetMission[] = [];
-            simState.fleetMissions.forEach((mission: FleetMission) => {
-                if (now >= mission.arrivalTime && mission.missionType === MissionType.COLONIZE) {
-                    simState.colonies.push({ id: mission.targetCoords, name: `Kolonia ${mission.targetCoords}`, creationTime: now });
-                    offlineEvents.push(`🌍 Pomyślnie skolonizowano [${mission.targetCoords}]!`);
-                } else if (now >= mission.returnTime) { 
-                    if (mission.missionType === MissionType.EXPEDITION) {
-                        const { message, finalFleet, finalLoot } = processExpeditionOutcome(mission, simState.shipLevels);
-                         offlineEvents.push(`🚀 Wyprawa na [${mission.targetCoords}] zakończona. Otrzymano raport.`);
-                         simState.messages.unshift(message);
-                         for (const ship in finalFleet) {
-                            simState.fleet[ship as ShipType] = (simState.fleet[ship as ShipType] || 0) + (finalFleet[ship as ShipType] || 0);
-                        }
-                        if (finalLoot) {
-                            simState.resources.metal = Math.min(simMaxResources.metal, simState.resources.metal + (finalLoot.metal || 0));
-                            simState.resources.crystal = Math.min(simMaxResources.crystal, simState.resources.crystal + (finalLoot.crystal || 0));
-                            simState.resources.deuterium = Math.min(simMaxResources.deuterium, simState.resources.deuterium + (finalLoot.deuterium || 0));
-                            simState.credits += finalLoot.credits || 0;
-                        }
-                    } else {
-                        offlineEvents.push(`🚀 Flota powróciła z misji [${mission.targetCoords}].`);
-                        for (const ship in mission.fleet) {
-                            simState.fleet[ship as ShipType] = (simState.fleet[ship as ShipType] || 0) + (mission.fleet[ship as ShipType] || 0);
-                        }
-                        if (mission.loot) {
-                            simState.resources.metal = Math.min(simMaxResources.metal, simState.resources.metal + (mission.loot.metal || 0));
-                            simState.resources.crystal = Math.min(simMaxResources.crystal, simState.resources.crystal + (mission.loot.crystal || 0));
-                            simState.resources.deuterium = Math.min(simMaxResources.deuterium, simState.resources.deuterium + (mission.loot.deuterium || 0));
-                            simState.credits += mission.loot.credits || 0;
-                        }
-                    }
-                } else {
-                    activeMissions.push(mission);
-                }
-            });
-            simState.fleetMissions = activeMissions;
-
-            if (i % 3600 === 0) {
-                if (now - simState.lastMerchantCheckTime > 6 * 3600 * 1000) {
-                    simState.lastMerchantCheckTime = now;
-                    if (simState.merchantState.status === MerchantStatus.INACTIVE && Math.random() < 0.35) {
-                        simState.merchantState = { ...simState.merchantState, status: MerchantStatus.INCOMING, arrivalTime: now + 5 * 3600 * 1000 };
-                        offlineEvents.push("💰 Wykryto sygnaturę kupca!");
-                    }
-                }
-                if (now - simState.lastPirateCheckTime > 8 * 3600 * 1000) {
-                    simState.lastPirateCheckTime = now;
-                    if (simState.pirateMercenaryState.status === PirateMercenaryStatus.INACTIVE && Math.random() < 0.5) {
-                         simState.pirateMercenaryState = { ...simState.pirateMercenaryState, status: PirateMercenaryStatus.INCOMING, arrivalTime: now + 3 * 3600 * 1000 };
-                         offlineEvents.push("🏴‍☠️ Wykryto sygnał od najemników!");
-                    }
-                }
-                 if (now - simState.lastAsteroidCheckTime > 12 * 3600 * 1000) {
-                    simState.lastAsteroidCheckTime = now;
-                    if (Math.random() < 0.25) { 
-                        if (Math.random() < 0.5) { 
-                            const built = (Object.keys(simState.buildings) as BuildingType[]).filter(b => simState.buildings[b as BuildingType] > 0);
-                            if(built.length > 0) {
-                                const hit = built[Math.floor(Math.random() * built.length)];
-                                simState.buildings[hit as BuildingType] = Math.max(0, simState.buildings[hit as BuildingType] - 1);
-                                offlineEvents.push(`💥 Asteroida uszkodziła budynek: ${BUILDING_DATA[hit as BuildingType].name}!`);
-                            }
-                        } else { 
-                            const type = Math.random() < 0.5 ? 'metal' : 'crystal';
-                            const amount = Math.floor(5000 + Math.random() * 10000);
-                            simState.resources[type] = Math.min(simMaxResources[type], simState.resources[type] + amount);
-                            offlineEvents.push(`🌠 Deszcz meteorytów! +${formatNumber(amount)} ${type === 'metal' ? 'metalu' : 'kryształu'}!`);
-                        }
-                    }
-                }
-            }
-            if (simState.merchantState.status === MerchantStatus.INCOMING && now >= simState.merchantState.arrivalTime) {
-                simState.merchantState = { ...simState.merchantState, status: MerchantStatus.ACTIVE, departureTime: now + 2 * 3600 * 1000 };
-                offlineEvents.push("💰 Kupiec przybył.");
-            } else if (simState.merchantState.status === MerchantStatus.ACTIVE && now >= simState.merchantState.departureTime) {
-                simState.merchantState = { ...simState.merchantState, status: MerchantStatus.INACTIVE };
-                offlineEvents.push("💰 Kupiec odleciał.");
-            }
-            if (simState.pirateMercenaryState.status === PirateMercenaryStatus.INCOMING && now >= simState.pirateMercenaryState.arrivalTime) {
-                simState.pirateMercenaryState = { ...simState.pirateMercenaryState, status: PirateMercenaryStatus.AVAILABLE, departureTime: now + 1 * 3600 * 1000 };
-                offlineEvents.push("🏴‍☠️ Najemnicy przybyli z ofertą.");
-            } else if (simState.pirateMercenaryState.status === PirateMercenaryStatus.AVAILABLE && now >= simState.pirateMercenaryState.departureTime) {
-                simState.pirateMercenaryState = { ...INITIAL_PIRATE_MERCENARY_STATE, status: PirateMercenaryStatus.DEPARTED };
-                offlineEvents.push("🏴‍☠️ Najemnicy odlecieli.");
-            }
-            if (simState.resourceVeinBonus.active && now >= simState.resourceVeinBonus.endTime) {
-                offlineEvents.push(`✨ Premia do wydobycia ${simState.resourceVeinBonus.resourceType} wygasła.`);
-                simState.resourceVeinBonus = INITIAL_RESOURCE_VEIN_BONUS;
-            }
-            if (simState.spacePlague.active && now >= simState.spacePlague.endTime) {
-                offlineEvents.push(`🦠 Zaraza na statkach ${SHIPYARD_DATA[simState.spacePlague.infectedShip!].name} została zwalczona.`);
-                simState.spacePlague = INITIAL_SPACE_PLAGUE_STATE;
-            }
-        }
-        
-        const summaryMessage: OfflineSummaryMessage = {
-            id: `msg-${Date.now()}-offline`, type: 'offline_summary', timestamp: Date.now(), isRead: false,
-            subject: 'Podsumowanie Offline',
-            duration: offlineSeconds,
-            events: offlineEvents,
-        };
-        simState.messages.unshift(summaryMessage);
-
-        setResources(simState.resources);
-        setBuildings(simState.buildings);
-        setResearch(simState.research);
-        setShipLevels(simState.shipLevels);
-        setFleet(simState.fleet);
-        setDefenses(simState.defenses);
-        setFleetMissions(simState.fleetMissions);
-        setNpcFleetMissions(simState.npcFleetMissions);
-        setMessages(simState.messages);
-        setBuildQueue(simState.buildQueue);
-        setCredits(simState.credits);
-        setMerchantState(simState.merchantState);
-        setLastMerchantCheckTime(simState.lastMerchantCheckTime);
-        setPirateMercenaryState(simState.pirateMercenaryState);
-        setLastPirateCheckTime(simState.lastPirateCheckTime);
-        setLastAsteroidCheckTime(simState.lastAsteroidCheckTime);
-        setResourceVeinBonus(simState.resourceVeinBonus);
-        setLastResourceVeinCheckTime(simState.lastResourceVeinCheckTime);
-        setAncientArtifactState(simState.ancientArtifactState);
-        setLastArtifactCheckTime(simState.lastArtifactCheckTime);
-        setSpacePlague(simState.spacePlague);
-        setLastSpacePlagueCheckTime(simState.lastSpacePlagueCheckTime);
-        setNpcStates(simState.npcStates);
-        setAwardedBonuses(simState.awardedBonuses);
-        setDebrisFields(simState.debrisFields);
-        setColonies(simState.colonies);
-        setInventory(simState.inventory);
-        setActiveBoosts(simState.activeBoosts);
-        setActiveCostReduction(simState.activeCostReduction);
-        setBlackMarketHourlyIncome(simBlackMarketIncome);
-        setLastBlackMarketIncomeCheck(simState.lastBlackMarketIncomeCheck);
-
-        showNotification(`Witaj z powrotem! Przetworzono postęp z ${formatTime(offlineSeconds)}.`);
-  }, [showNotification]);
-
-  const handleLogin = useCallback((username: string) => {
-    const loadedState = loadState(username);
-    if (loadedState) {
-        runOfflineCalcs(loadedState);
-    } else {
-        resetGameState();
-    }
-    setCurrentUser(username);
-  }, [resetGameState, runOfflineCalcs]);
-
-  const handleLogout = useCallback(() => {
-    setCurrentUser(null);
-    resetGameState();
-  }, [resetGameState]);
-
-  const productions = useMemo(() => calculateProductions(buildings, resourceVeinBonus, colonies, activeBoosts), [buildings, resourceVeinBonus, colonies, activeBoosts]);
   const maxResources = useMemo(() => calculateMaxResources(buildings), [buildings]);
+  const productions = useMemo(() => calculateProductions(buildings, resourceVeinBonus, colonies, activeBoosts), [buildings, resourceVeinBonus, colonies, activeBoosts]);
+  
+    // Effect to update the game state ref for saving
+    useEffect(() => {
+        gameStateRef.current = {
+            resources, buildings, research, shipLevels, fleet, defenses, fleetMissions, npcFleetMissions, messages,
+            buildQueue, credits, merchantState, lastMerchantCheckTime, pirateMercenaryState, lastPirateCheckTime,
+            lastAsteroidCheckTime, resourceVeinBonus, lastResourceVeinCheckTime, ancientArtifactState, lastArtifactCheckTime,
+            spacePlague, lastSpacePlagueCheckTime, lastSaveTime: Date.now(), npcStates, awardedBonuses, debrisFields,
+            colonies, inventory, activeBoosts, activeCostReduction, blackMarketHourlyIncome, lastBlackMarketIncomeCheck,
+        };
+    }, [
+        resources, buildings, research, shipLevels, fleet, defenses, fleetMissions, npcFleetMissions, messages,
+        buildQueue, credits, merchantState, lastMerchantCheckTime, pirateMercenaryState, lastPirateCheckTime,
+        lastAsteroidCheckTime, resourceVeinBonus, lastResourceVeinCheckTime, ancientArtifactState, lastArtifactCheckTime,
+        spacePlague, lastSpacePlagueCheckTime, npcStates, awardedBonuses, debrisFields, colonies, inventory, activeBoosts,
+        activeCostReduction, blackMarketHourlyIncome, lastBlackMarketIncomeCheck
+    ]);
+  
+    // Effect for Loading State from Server
+    useEffect(() => {
+        const fetchGameState = async () => {
+            setIsLoading(true);
+            setError(null);
+            const userId = getUserId();
+            try {
+                const response = await fetch('/.netlify/functions/get-game-state', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId }),
+                });
 
-  // Effect for Saving State to localStorage
-  useEffect(() => {
-    if (!currentUser) return;
+                if (!response.ok) {
+                    const errorData = await response.text();
+                    throw new Error(`Błąd serwera: ${response.status} - ${errorData}`);
+                }
 
-    const gameState: GameState = {
-        resources,
-        buildings,
-        research,
-        shipLevels,
-        fleet,
-        defenses,
-        fleetMissions,
-        npcFleetMissions,
-        messages,
-        buildQueue,
-        credits,
-        merchantState,
-        lastMerchantCheckTime,
-        pirateMercenaryState,
-        lastPirateCheckTime,
-        lastAsteroidCheckTime,
-        resourceVeinBonus,
-        lastResourceVeinCheckTime,
-        ancientArtifactState,
-        lastArtifactCheckTime,
-        spacePlague,
-        lastSpacePlagueCheckTime,
-        lastSaveTime: Date.now(),
-        npcStates,
-        awardedBonuses,
-        debrisFields,
-        colonies,
-        inventory,
-        activeBoosts,
-        activeCostReduction,
-        blackMarketHourlyIncome,
-        lastBlackMarketIncomeCheck,
-    };
-    try {
-        localStorage.setItem(SAVE_GAME_KEY_PREFIX + currentUser, JSON.stringify(gameState));
-    } catch (err) {
-        console.error("Could not save state", err);
-    }
-  }, [resources, buildings, research, shipLevels, fleet, defenses, fleetMissions, npcFleetMissions, messages, buildQueue, credits, merchantState, lastMerchantCheckTime, pirateMercenaryState, lastPirateCheckTime, lastAsteroidCheckTime, resourceVeinBonus, lastResourceVeinCheckTime, ancientArtifactState, lastArtifactCheckTime, spacePlague, lastSpacePlagueCheckTime, npcStates, awardedBonuses, debrisFields, colonies, inventory, activeBoosts, activeCostReduction, blackMarketHourlyIncome, lastBlackMarketIncomeCheck, currentUser]);
+                const data: GameState = await response.json();
+                
+                // Set all states from the server response
+                setResources(data.resources);
+                setBuildings(data.buildings);
+                setResearch(data.research);
+                setShipLevels(data.shipLevels);
+                setFleet(data.fleet);
+                setDefenses(data.defenses);
+                setFleetMissions(data.fleetMissions);
+                setNpcFleetMissions(data.npcFleetMissions);
+                setMessages(data.messages);
+                setBuildQueue(data.buildQueue);
+                setCredits(data.credits);
+                setMerchantState(data.merchantState);
+                setLastMerchantCheckTime(data.lastMerchantCheckTime);
+                setPirateMercenaryState(data.pirateMercenaryState);
+                setLastPirateCheckTime(data.lastPirateCheckTime);
+                setLastAsteroidCheckTime(data.lastAsteroidCheckTime);
+                setResourceVeinBonus(data.resourceVeinBonus);
+                setLastResourceVeinCheckTime(data.lastResourceVeinCheckTime);
+                setAncientArtifactState(data.ancientArtifactState);
+                setLastArtifactCheckTime(data.lastArtifactCheckTime);
+                setSpacePlague(data.spacePlague);
+                setLastSpacePlagueCheckTime(data.lastSpacePlagueCheckTime);
+                setNpcStates(data.npcStates);
+                setAwardedBonuses(data.awardedBonuses);
+                setDebrisFields(data.debrisFields);
+                setColonies(data.colonies);
+                setInventory(data.inventory);
+                setActiveBoosts(data.activeBoosts);
+                setActiveCostReduction(data.activeCostReduction);
+                setBlackMarketHourlyIncome(data.blackMarketHourlyIncome);
+                setLastBlackMarketIncomeCheck(data.lastBlackMarketIncomeCheck);
+                
+                const offlineSummary = data.messages.find(m => m.type === 'offline_summary') as OfflineSummaryMessage | undefined;
+                if (offlineSummary) {
+                    showNotification(`Witaj z powrotem! Przetworzono postęp z ${formatTime(offlineSummary.duration)}.`);
+                }
 
+            } catch (err) {
+                setError(err instanceof Error ? err.message : 'Wystąpił nieznany błąd podczas ładowania gry.');
+                console.error(err);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchGameState();
+    }, [showNotification]);
+
+
+    // Effect for Auto-saving State to Server
+    useEffect(() => {
+        const saveInterval = setInterval(async () => {
+            if (gameStateRef.current && !isLoading && !error) {
+                setIsSaving(true);
+                const userId = getUserId();
+                try {
+                    const response = await fetch('/.netlify/functions/save-game-state', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId, gameState: gameStateRef.current }),
+                    });
+                    if (!response.ok) {
+                        console.error("Nie udało się zapisać stanu gry.");
+                    }
+                } catch (err) {
+                    console.error("Nie udało się zapisać stanu gry:", err);
+                } finally {
+                    setIsSaving(false);
+                }
+            }
+        }, 30000); // Save every 30 seconds
+
+        return () => clearInterval(saveInterval);
+    }, [isLoading, error]);
   
   const handleArtifactChoice = useCallback((choice: AncientArtifactChoice) => {
     const now = Date.now();
@@ -788,6 +383,7 @@ const handleActivateBoost = useCallback((boostId: string) => {
     const boostToActivate = inventory.boosts.find(b => b.id === boostId);
     if (!boostToActivate) return;
 
+    // Handle one-time boosts first
     if (boostToActivate.type === BoostType.CONSTRUCTION_COST_REDUCTION) {
         if (activeCostReduction > 0) {
             showNotification("Zniżka na budowę jest już aktywna!");
@@ -804,7 +400,7 @@ const handleActivateBoost = useCallback((boostId: string) => {
         const queueToReduce = buildQueue[0];
         if (!queueToReduce) {
             showNotification("Brak aktywnej budowy lub badania do skrócenia!");
-            return; 
+            return; // Don't consume boost if unusable
         }
         setInventory(prev => ({ ...prev, boosts: prev.boosts.filter(b => b.id !== boostId) }));
         const timeReductionSeconds = boostToActivate.level * 3600;
@@ -838,10 +434,10 @@ const handleActivateBoost = useCallback((boostId: string) => {
      if (boostToActivate.type === BoostType.ABANDONED_COLONY_LOOT) {
         setInventory(prev => ({ ...prev, boosts: prev.boosts.filter(b => b.id !== boostId) }));
         const loot = {
-            metal: Math.floor(20000 + Math.random() * 30000), 
-            crystal: Math.floor(20000 + Math.random() * 30000), 
-            deuterium: Math.floor(5000 + Math.random() * 5000), 
-            credits: Math.floor(5000 + Math.random() * 5000), 
+            metal: Math.floor(20000 + Math.random() * 30000), // 20k-50k
+            crystal: Math.floor(20000 + Math.random() * 30000), // 20k-50k
+            deuterium: Math.floor(5000 + Math.random() * 5000), // 5k-10k
+            credits: Math.floor(5000 + Math.random() * 5000), // 5k-10k
         };
         setResources(r => ({
             metal: Math.min(maxResources.metal, r.metal + loot.metal),
@@ -854,6 +450,7 @@ const handleActivateBoost = useCallback((boostId: string) => {
         return;
     }
 
+    // Handle timed boosts
     if (activeBoosts[boostToActivate.type]) {
         showNotification("Podobny bonus jest już aktywny!");
         return;
@@ -876,746 +473,31 @@ const handleActivateBoost = useCallback((boostId: string) => {
     setIsInventoryOpen(false);
 }, [inventory, activeBoosts, showNotification, activeCostReduction, buildQueue, resources, credits, maxResources]);
 
-  // Main Game Tick
+  // Main Game Tick (Client-side for UI updates)
   useEffect(() => {
-    if (!currentUser) return;
-
+    if (isLoading) return;
+      
     const gameLoop = setInterval(() => {
       const now = Date.now();
       
+      // Resource update
       setResources(prev => ({
         metal: Math.min(prev.metal + productions.metal / (3600 / (TICK_INTERVAL / 1000)), maxResources.metal),
         crystal: Math.min(prev.crystal + productions.crystal / (3600 / (TICK_INTERVAL / 1000)), maxResources.crystal),
         deuterium: Math.min(prev.deuterium + productions.deuterium / (3600 / (TICK_INTERVAL / 1000)), maxResources.deuterium),
       }));
-      setCredits(prev => prev + blackMarketHourlyIncome / (3600 / (TICK_INTERVAL / 1000)));
-
-      if (now - lastBlackMarketIncomeCheck >= 3600 * 1000) {
-          setLastBlackMarketIncomeCheck(now);
-          const blackMarketLevel = buildings[BuildingType.BLACK_MARKET];
-          if (blackMarketLevel > 0) {
-              const minIncome = 50 * Math.pow(1.1, blackMarketLevel - 1);
-              const maxIncome = 200 * Math.pow(1.1, blackMarketLevel - 1);
-              const newIncome = minIncome + Math.random() * (maxIncome - minIncome);
-              setBlackMarketHourlyIncome(newIncome);
-          } else {
-              setBlackMarketHourlyIncome(0);
-          }
-      }
-
-      const completedQueueItems = buildQueue.filter(item => now >= item.endTime);
-      if (completedQueueItems.length > 0) {
-          completedQueueItems.forEach(item => {
-              const objectInfo = ALL_GAME_OBJECTS[item.id as keyof typeof ALL_GAME_OBJECTS];
-              showNotification(`${objectInfo.name} ${item.type.match(/^(ship|defense)$/) ? 'zbudowano' : 'ukończono na poziomie'} ${item.levelOrAmount}!`);
-              if (item.type === 'building') {
-                  setBuildings(prev => ({ ...prev, [item.id]: item.levelOrAmount }));
-
-                  const buildingType = item.id as BuildingType;
-                  if (item.levelOrAmount === 2 && !awardedBonuses.includes(buildingType)) {
-                      let bonusResources: Partial<Resources> | null = null;
-                      let bonusMessage: string | null = null;
-
-                      switch (buildingType) {
-                          case BuildingType.METAL_MINE:
-                              bonusResources = { metal: 1000 };
-                              bonusMessage = 'Bonus za Kopalnię Metalu poz. 2: +1000 Metalu!';
-                              break;
-                          case BuildingType.CRYSTAL_MINE:
-                              bonusResources = { crystal: 700 };
-                              bonusMessage = 'Bonus za Kopalnię Kryształu poz. 2: +700 Kryształu!';
-                              break;
-                          case BuildingType.DEUTERIUM_SYNTHESIZER:
-                              bonusResources = { deuterium: 300 };
-                              bonusMessage = 'Bonus za Syntezator Deuteru poz. 2: +300 Deuteru!';
-                              break;
-                      }
-                      
-                      if (bonusResources && bonusMessage) {
-                          setResources(prev => ({
-                              metal: Math.min(prev.metal + (bonusResources?.metal || 0), maxResources.metal),
-                              crystal: Math.min(prev.crystal + (bonusResources?.crystal || 0), maxResources.crystal),
-                              deuterium: Math.min(prev.deuterium + (bonusResources?.deuterium || 0), maxResources.deuterium),
-                          }));
-                          setAwardedBonuses(prev => [...prev, buildingType]);
-                          showNotification(bonusMessage);
-                      }
-                  }
-              }
-              else if (item.type === 'research') setResearch(prev => ({ ...prev, [item.id]: item.levelOrAmount }));
-              else if (item.type === 'ship_upgrade') setShipLevels(prev => ({ ...prev, [item.id]: item.levelOrAmount }));
-              else if (item.type === 'ship') setFleet(prev => ({ ...prev, [item.id]: (prev[item.id as keyof Fleet] || 0) + item.levelOrAmount }));
-              else if (item.type === 'defense') setDefenses(prev => ({ ...prev, [item.id]: (prev[item.id as keyof Defenses] || 0) + item.levelOrAmount }));
-          });
-          setBuildQueue(prev => prev.filter(item => now < item.endTime));
-      }
-
-      if (fleetMissions.length > 0) {
-        const missionsToKeep: FleetMission[] = [];
-        const returningFleets: FleetMission[] = [];
-        const completedMissions: FleetMission[] = [];
-
-        for (const mission of fleetMissions) {
-            if (now >= mission.returnTime) {
-                if (mission.missionType !== MissionType.COLONIZE) {
-                    returningFleets.push(mission);
-                } else {
-                    completedMissions.push(mission);
-                }
-                continue;
-            }
-
-            if (now >= mission.arrivalTime && !mission.processedArrival) {
-                let updatedMission = { ...mission, processedArrival: true };
-                
-                if (updatedMission.missionType === MissionType.COLONIZE) {
-                    const newColony: Colony = {
-                        id: updatedMission.targetCoords,
-                        name: `Kolonia ${updatedMission.targetCoords}`,
-                        creationTime: now,
-                    };
-                    setColonies(prev => [...prev, newColony]);
-
-                    const newMessage: ColonizationMessage = {
-                        id: `msg-${now}-colonize`, type: 'colonization', timestamp: now, isRead: false,
-                        subject: `Kolonizacja [${updatedMission.targetCoords}]`,
-                        coords: updatedMission.targetCoords,
-                        success: true,
-                    };
-                    setMessages(m => [newMessage, ...m]);
-                    showNotification(`Pomyślnie założono nową kolonię na [${updatedMission.targetCoords}]!`);
-                    
-                    completedMissions.push(updatedMission); 
-                    continue; 
-                } else if (updatedMission.missionType === MissionType.EXPLORE) {
-                    showNotification(`Flota rozpoczęła 5-godzinną eksplorację na [${updatedMission.targetCoords}].`);
-                }
-                
-                const targetNpc = npcStates[updatedMission.targetCoords];
-
-                if (updatedMission.missionType === MissionType.ATTACK && targetNpc) {
-                    
-                    const attackerFleetPower = calculateTotalPower(updatedMission.fleet, research, shipLevels, spacePlague, activeBoosts);
-                    const defenderPower = calculateTotalPower(targetNpc.fleet, targetNpc.research, null) + calculateTotalPower(targetNpc.defenses, targetNpc.research, null);
-
-                    const attackerLossRatio = Math.max(0.1, defenderPower / (attackerFleetPower + defenderPower + 1) * (0.8 + Math.random() * 0.4));
-                    const defenderLossRatio = Math.max(0.1, attackerFleetPower / (attackerFleetPower + defenderPower + 1) * (0.8 + Math.random() * 0.4));
-
-                    const attackerLosses: Partial<Fleet> = {};
-                    Object.keys(updatedMission.fleet).forEach(key => { attackerLosses[key as ShipType] = Math.floor((updatedMission.fleet[key as ShipType] || 0) * attackerLossRatio); });
-
-                    const defenderLosses: Partial<Fleet> = {};
-                    Object.keys(targetNpc.fleet).forEach(key => { defenderLosses[key as ShipType] = Math.floor((targetNpc.fleet[key as ShipType] || 0) * defenderLossRatio); });
-                    
-                    const defenderDefensesLosses: Partial<Defenses> = {};
-                    Object.keys(targetNpc.defenses).forEach(key => { defenderDefensesLosses[key as DefenseType] = Math.floor((targetNpc.defenses[key as DefenseType] || 0) * defenderLossRatio); });
-
-                    const survivingAttackerFleet = { ...updatedMission.fleet };
-                    Object.keys(attackerLosses).forEach(key => { survivingAttackerFleet[key as ShipType] = Math.max(0, (survivingAttackerFleet[key as ShipType] || 0) - (attackerLosses[key as ShipType] || 0)); });
-                    const actualCargoCapacity = Object.entries(survivingAttackerFleet).reduce((total, [shipType, count]) => total + (SHIPYARD_DATA[shipType as ShipType].cargoCapacity * (count || 0)), 0);
-
-                    const npcMaxResources = calculateMaxResources(targetNpc.buildings);
-                    const protectedMetal = npcMaxResources.metal * PROTECTED_RESOURCES_FACTOR;
-                    const protectedCrystal = npcMaxResources.crystal * PROTECTED_RESOURCES_FACTOR;
-                    const protectedDeuterium = npcMaxResources.deuterium * PROTECTED_RESOURCES_FACTOR;
-
-                    const lootableMetal = Math.max(0, targetNpc.resources.metal - protectedMetal) / 2;
-                    const lootableCrystal = Math.max(0, targetNpc.resources.crystal - protectedCrystal) / 2;
-                    const lootableDeuterium = Math.max(0, targetNpc.resources.deuterium - protectedDeuterium) / 2;
-
-                    const totalLootable = lootableMetal + lootableCrystal + lootableDeuterium;
-                    const lootRatio = totalLootable > 0 ? Math.min(1, actualCargoCapacity / totalLootable) : 0;
-
-                    const actualLoot: Loot = {
-                        metal: Math.floor(lootableMetal * lootRatio),
-                        crystal: Math.floor(lootableCrystal * lootRatio),
-                        deuterium: Math.floor(lootableDeuterium * lootRatio),
-                        credits: Math.floor(Math.random() * 5000),
-                    };
-                    
-                    const allLossesCost = { 
-                        metal: getUnitsCost(attackerLosses).metal + getUnitsCost(defenderLosses).metal + getUnitsCost(defenderDefensesLosses).metal,
-                        crystal: getUnitsCost(attackerLosses).crystal + getUnitsCost(defenderLosses).crystal + getUnitsCost(defenderDefensesLosses).crystal,
-                        deuterium: 0,
-                    };
-                    const debrisCreated: DebrisField = {
-                        metal: (allLossesCost.metal || 0) * DEBRIS_FIELD_RECOVERY_RATE,
-                        crystal: (allLossesCost.crystal || 0) * DEBRIS_FIELD_RECOVERY_RATE
-                    };
-                    setDebrisFields(prev => {
-                        const newDebrisFields = {...prev};
-                        const existingDebris = newDebrisFields[updatedMission.targetCoords] || { metal: 0, crystal: 0 };
-                        newDebrisFields[updatedMission.targetCoords] = {
-                            metal: (existingDebris.metal || 0) + (debrisCreated.metal || 0),
-                            crystal: (existingDebris.crystal || 0) + (debrisCreated.crystal || 0),
-                        };
-                        return newDebrisFields;
-                    });
-                    
-                    const battleReport: BattleReport = {
-                        id: `br-${now}-${Math.random()}`, targetCoords: updatedMission.targetCoords, isPlayerAttacker: true,
-                        attackerName: 'Ty', defenderName: `${targetNpc.name} (NPC)`,
-                        attackerFleet: updatedMission.fleet, defenderFleet: targetNpc.fleet, defenderDefenses: targetNpc.defenses,
-                        attackerLosses, defenderLosses, defenderDefensesLosses, loot: actualLoot, debrisCreated,
-                    };
-
-                    updatedMission.fleet = survivingAttackerFleet;
-                    updatedMission.loot = actualLoot;
-                    
-                    const newNpcState = {...targetNpc};
-                    newNpcState.resources.metal -= actualLoot.metal || 0;
-                    newNpcState.resources.crystal -= actualLoot.crystal || 0;
-                    newNpcState.resources.deuterium -= actualLoot.deuterium || 0;
-                    Object.keys(defenderLosses).forEach(k => { newNpcState.fleet[k as ShipType] = Math.max(0, (newNpcState.fleet[k as ShipType] || 0) - (defenderLosses[k as ShipType] || 0))});
-                    Object.keys(defenderDefensesLosses).forEach(k => { newNpcState.defenses[k as DefenseType] = Math.max(0, (newNpcState.defenses[k as DefenseType] || 0) - (defenderDefensesLosses[k as DefenseType] || 0))});
-                    setNpcStates(prev => ({ ...prev, [updatedMission.targetCoords]: newNpcState }));
-                    
-                    const newMessage: BattleMessage = { id: `msg-${now}-${Math.random()}`, type: 'battle', timestamp: now, isRead: false, subject: `Raport bojowy: Atak na [${updatedMission.targetCoords}]`, report: battleReport };
-                    setMessages(prev => [newMessage, ...prev]);
-                    showNotification(`Flota dotarła do [${updatedMission.targetCoords}]. Otrzymano nowy raport bojowy.`);
-
-                } else if (updatedMission.missionType === MissionType.SPY) {
-                    const spyReport: SpyReport = targetNpc 
-                        ? { targetCoords: updatedMission.targetCoords, resources: targetNpc.resources, fleet: targetNpc.fleet, defenses: targetNpc.defenses, buildings: targetNpc.buildings, research: targetNpc.research }
-                        : { targetCoords: updatedMission.targetCoords, resources: {}, fleet: {}, defenses: {}, buildings: {}, research: {} };
-                    
-                    const newMessage: SpyMessage = { id: `msg-${now}-${Math.random()}`, type: 'spy', timestamp: now, isRead: false, subject: `Raport szpiegowski z [${updatedMission.targetCoords}]`, report: spyReport };
-                    setMessages(prev => [newMessage, ...prev]);
-                    showNotification(`Otrzymano nowy raport szpiegowski z [${updatedMission.targetCoords}].`);
-                
-                } else if (updatedMission.missionType === MissionType.HARVEST) {
-                    const targetDebris = debrisFields[updatedMission.targetCoords];
-                    if (targetDebris) {
-                        const recyclerCapacity = Object.entries(updatedMission.fleet).reduce((cap, [type, count]) => type === ShipType.RECYCLER ? cap + (SHIPYARD_DATA[type].cargoCapacity * (count || 0)) : cap, 0);
-                        const availableMetal = targetDebris.metal || 0;
-                        const availableCrystal = targetDebris.crystal || 0;
-                        const totalAvailable = availableMetal + availableCrystal;
-                        const harvestRatio = totalAvailable > 0 ? Math.min(1, recyclerCapacity / totalAvailable) : 0;
-                        
-                        const harvestedMetal = Math.floor(availableMetal * harvestRatio);
-                        const harvestedCrystal = Math.floor(availableCrystal * harvestRatio);
-                        
-                        updatedMission.loot = { metal: harvestedMetal, crystal: harvestedCrystal };
-                        setDebrisFields(prev => ({ ...prev, [updatedMission.targetCoords]: { metal: availableMetal - harvestedMetal, crystal: availableCrystal - harvestedCrystal }}));
-                        showNotification(`Zebrano ${harvestedMetal} metalu i ${harvestedCrystal} kryształu z [${updatedMission.targetCoords}].`);
-                    }
-                } else if (updatedMission.missionType === MissionType.EXPEDITION) {
-                    // Outcome processed on return
-                }
-                
-                missionsToKeep.push(updatedMission);
-            } 
-            else if (mission.missionType === MissionType.EXPLORE && mission.explorationEndTime && now >= mission.explorationEndTime && !mission.processedExploration) {
-                let updatedMission = { ...mission, processedExploration: true };
-                let newMessage: ExplorationMessage;
-                const rand = Math.random();
-
-                if (rand < 0.25) { 
-                    const fleetGained: Fleet = {
-                        [ShipType.LIGHT_FIGHTER]: Math.floor(1 + Math.random() * 2),
-                        [ShipType.CARGO_SHIP]: 1
-                    };
-                    setFleet(prev => {
-                        const newFleet = { ...prev };
-                        for (const shipType in fleetGained) {
-                            newFleet[shipType as ShipType] = (newFleet[shipType as ShipType] || 0) + (fleetGained[shipType as ShipType] || 0);
-                        }
-                        return newFleet;
-                    });
-                    newMessage = {
-                        id: `msg-${now}-explore-wreck`, type: 'exploration', timestamp: now, isRead: false,
-                        subject: `Odnaleziono wrak na [${mission.targetCoords}]!`,
-                        outcome: ExplorationOutcomeType.FIND_SHIP_WRECK,
-                        details: { targetCoords: mission.targetCoords, fleetGained }
-                    };
-                } else if (rand < 0.50) { 
-                    const foundBoost: Boost = { id: `boost-${now}-scan`, type: BoostType.SECTOR_ACTIVITY_SCAN, level: 1, duration: 2 * 3600 };
-                    setInventory(prev => ({ ...prev, boosts: [...prev.boosts, foundBoost] }));
-                    newMessage = {
-                        id: `msg-${now}-explore-boost`, type: 'exploration', timestamp: now, isRead: false,
-                        subject: `Cenne dane na [${mission.targetCoords}]!`,
-                        outcome: ExplorationOutcomeType.FIND_BOOST,
-                        details: { targetCoords: mission.targetCoords, foundBoost }
-                    };
-                } else if (rand < 0.75) {
-                    const foundBoost: Boost = { id: `boost-${now}-loot`, type: BoostType.ABANDONED_COLONY_LOOT, level: 1, duration: 0 };
-                    setInventory(prev => ({ ...prev, boosts: [...prev.boosts, foundBoost] }));
-                    newMessage = {
-                        id: `msg-${now}-explore-boost`, type: 'exploration', timestamp: now, isRead: false,
-                        subject: `Mapa kolonii na [${mission.targetCoords}]!`,
-                        outcome: ExplorationOutcomeType.FIND_BOOST,
-                        details: { targetCoords: mission.targetCoords, foundBoost }
-                    };
-                } else if (rand < 0.90) {
-                    const lossPercent = 0.1 + Math.random() * 0.3;
-                    const fleetLost: Partial<Fleet> = {};
-                    for (const ship in updatedMission.fleet) {
-                        const losses = Math.ceil((updatedMission.fleet[ship as ShipType] || 0) * lossPercent);
-                        if (losses > 0) {
-                            fleetLost[ship as ShipType] = losses;
-                            updatedMission.fleet[ship as ShipType] = (updatedMission.fleet[ship as ShipType] || 0) - losses;
-                            if (updatedMission.fleet[ship as ShipType]! < 0) updatedMission.fleet[ship as ShipType] = 0;
-                        }
-                    }
-                    newMessage = {
-                        id: `msg-${now}-explore`, type: 'exploration', timestamp: now, isRead: false,
-                        subject: `Niebezpieczeństwo na [${mission.targetCoords}]!`,
-                        outcome: ExplorationOutcomeType.HOSTILES,
-                        details: { targetCoords: mission.targetCoords, fleetLost }
-                    };
-                } else { 
-                    newMessage = {
-                        id: `msg-${now}-explore`, type: 'exploration', timestamp: now, isRead: false,
-                        subject: `Eksploracja [${mission.targetCoords}]`,
-                        outcome: ExplorationOutcomeType.NOTHING,
-                        details: { targetCoords: mission.targetCoords }
-                    };
-                }
-                
-                showNotification(`Eksploracja na [${mission.targetCoords}] zakończona. Otrzymano raport.`);
-                setMessages(m => [newMessage, ...m]);
-                missionsToKeep.push(updatedMission);
-            }
-            else {
-                missionsToKeep.push(mission);
-            }
-        }
-        
-        if (returningFleets.length > 0) {
-            let newFleet = { ...fleet };
-            let newResources = { ...resources };
-            let newCredits = credits;
-            const newMessages: Message[] = [];
-
-            for (const mission of returningFleets) {
-                if (mission.missionType === MissionType.EXPEDITION) {
-                    const { message, finalFleet, finalLoot } = processExpeditionOutcome(mission, shipLevels);
-                    newMessages.push(message);
-
-                    for (const shipType in finalFleet) {
-                        newFleet[shipType as ShipType] = (newFleet[shipType as ShipType] || 0) + (finalFleet[shipType as ShipType] || 0);
-                    }
-                    if (finalLoot) {
-                        newResources.metal = Math.min(maxResources.metal, newResources.metal + (finalLoot.metal || 0));
-                        newResources.crystal = Math.min(maxResources.crystal, newResources.crystal + (finalLoot.crystal || 0));
-                        newResources.deuterium = Math.min(maxResources.deuterium, newResources.deuterium + (finalLoot.deuterium || 0));
-                        newCredits += finalLoot.credits || 0;
-                    }
-                     showNotification(`Wyprawa na [${mission.targetCoords}] zakończyła się. Otrzymano nowy raport.`);
-                } else {
-                    for (const shipType in mission.fleet) {
-                        newFleet[shipType as ShipType] = (newFleet[shipType as ShipType] || 0) + (mission.fleet[shipType as ShipType] || 0);
-                    }
-                     if (mission.loot) {
-                        newResources.metal = Math.min(maxResources.metal, newResources.metal + (mission.loot.metal || 0));
-                        newResources.crystal = Math.min(maxResources.crystal, newResources.crystal + (mission.loot.crystal || 0));
-                        newResources.deuterium = Math.min(maxResources.deuterium, newResources.deuterium + (mission.loot.deuterium || 0));
-                        newCredits += mission.loot.credits || 0;
-                    }
-                    showNotification(`Flota powróciła z misji [${mission.targetCoords}].`);
-                }
-            }
-
-            setFleet(newFleet);
-            setResources(newResources);
-            setCredits(newCredits);
-            if(newMessages.length > 0) {
-                setMessages(prev => [...newMessages, ...prev]);
-            }
-        }
-        
-        if (completedMissions.length > 0 || returningFleets.length > 0) {
-             setFleetMissions(missionsToKeep);
-        }
-      }
-
-      const completedNpcMissions = npcFleetMissions.filter(m => now >= m.arrivalTime);
-      if (completedNpcMissions.length > 0) {
-          completedNpcMissions.forEach(mission => {
-              const attackerNpc = npcStates[mission.sourceCoords];
-              if (!attackerNpc) return;
-
-              if (mission.missionType === MissionType.SPY) {
-                  const attackerDisplayName = `${attackerNpc.name} (NPC)`;
-                  const newMessage: EspionageEventMessage = { 
-                      id: `msg-${now}-esp`, type: 'espionage_event', timestamp: now, isRead: false, 
-                      subject: `Wykryto szpiegostwo z [${mission.sourceCoords}]!`, 
-                      spyCoords: mission.sourceCoords, spyName: attackerNpc.name
-                  };
-                  setMessages(prev => [newMessage, ...prev]);
-                  showNotification(`Twoja planeta została wyszpiegowana przez gracza ${attackerDisplayName} z [${mission.sourceCoords}]!`);
-              } else if (mission.missionType === MissionType.ATTACK) {
-                    const attackerDisplayName = `${attackerNpc.name} (NPC)`;
-                    
-                    const attackerPower = calculateTotalPower(mission.fleet, attackerNpc.research, null);
-                    const defenderPower = calculateTotalPower(fleet, research, shipLevels, spacePlague, activeBoosts) + calculateTotalPower(defenses, research, null, undefined, activeBoosts);
-
-                    const attackerLossRatio = Math.max(0.1, defenderPower / (attackerPower + defenderPower + 1) * (0.8 + Math.random() * 0.4));
-                    const defenderLossRatio = Math.max(0.1, attackerPower / (attackerPower + defenderPower + 1) * (0.8 + Math.random() * 0.4));
-
-                    const attackerLosses: Partial<Fleet> = {};
-                    Object.keys(mission.fleet).forEach(key => { attackerLosses[key as ShipType] = Math.floor((mission.fleet[key as ShipType] || 0) * attackerLossRatio); });
-                    const defenderLosses: Partial<Fleet> = {};
-                    Object.keys(fleet).forEach(key => { defenderLosses[key as ShipType] = Math.floor((fleet[key as ShipType] || 0) * defenderLossRatio); });
-                    const defenderDefensesLosses: Partial<Defenses> = {};
-                    Object.keys(defenses).forEach(key => { defenderDefensesLosses[key as DefenseType] = Math.floor((defenses[key as DefenseType] || 0) * defenderLossRatio); });
-                    
-                    const survivingAttackerFleet = { ...mission.fleet };
-                    Object.keys(attackerLosses).forEach(key => { survivingAttackerFleet[key as ShipType] = (survivingAttackerFleet[key as ShipType] || 0) - (attackerLosses[key as ShipType] || 0); });
-                    const cargoCapacity = Object.entries(survivingAttackerFleet).reduce((total, [shipType, count]) => total + (SHIPYARD_DATA[shipType as ShipType].cargoCapacity * (count || 0)), 0);
-
-                    const protectionFactor = activeBoosts[BoostType.STORAGE_PROTECTION_BOOST]
-                        ? activeBoosts[BoostType.STORAGE_PROTECTION_BOOST]!.level / 100
-                        : PROTECTED_RESOURCES_FACTOR;
-
-                    const protectedMetal = maxResources.metal * protectionFactor;
-                    const protectedCrystal = maxResources.crystal * protectionFactor;
-                    const protectedDeuterium = maxResources.deuterium * protectionFactor;
-
-                    const lootableMetal = Math.max(0, resources.metal - protectedMetal) / 2;
-                    const lootableCrystal = Math.max(0, resources.crystal - protectedCrystal) / 2;
-                    const lootableDeuterium = Math.max(0, resources.deuterium - protectedDeuterium) / 2;
-                    
-                    const totalLootable = lootableMetal + lootableCrystal + lootableDeuterium;
-                    const lootRatio = totalLootable > 0 ? Math.min(1, cargoCapacity / totalLootable) : 0;
-
-                    const actualLoot: Loot = {
-                        metal: Math.floor(lootableMetal * lootRatio),
-                        crystal: Math.floor(lootableCrystal * lootRatio),
-                        deuterium: Math.floor(lootableDeuterium * lootRatio),
-                    };
-
-                    const allLossesCost = { 
-                        metal: getUnitsCost(attackerLosses).metal + getUnitsCost(defenderLosses).metal + getUnitsCost(defenderDefensesLosses).metal,
-                        crystal: getUnitsCost(attackerLosses).crystal + getUnitsCost(defenderLosses).crystal + getUnitsCost(defenderDefensesLosses).crystal,
-                        deuterium: 0,
-                    };
-                    const debrisCreated: DebrisField = {
-                        metal: (allLossesCost.metal || 0) * DEBRIS_FIELD_RECOVERY_RATE,
-                        crystal: (allLossesCost.crystal || 0) * DEBRIS_FIELD_RECOVERY_RATE
-                    };
-                    setDebrisFields(prev => {
-                        const newDebrisFields = {...prev};
-                        const existingDebris = newDebrisFields[PLAYER_HOME_COORDS] || { metal: 0, crystal: 0 };
-                        newDebrisFields[PLAYER_HOME_COORDS] = {
-                            metal: (existingDebris.metal || 0) + (debrisCreated.metal || 0),
-                            crystal: (existingDebris.crystal || 0) + (debrisCreated.crystal || 0),
-                        };
-                        return newDebrisFields;
-                    });
-
-                    const battleReport: BattleReport = {
-                        id: `br-${now}-${Math.random()}`, targetCoords: 'Twoja planeta', isPlayerAttacker: false,
-                        attackerName: attackerDisplayName, defenderName: 'Ty',
-                        attackerFleet: mission.fleet, defenderFleet: fleet, defenderDefenses: defenses,
-                        attackerLosses, defenderLosses, defenderDefensesLosses, loot: actualLoot, debrisCreated,
-                    };
-
-                    setFleet(prev => { const next = {...prev}; Object.keys(defenderLosses).forEach(k => next[k as ShipType] = Math.max(0, (prev[k as ShipType] || 0) - (defenderLosses[k as ShipType] || 0))); return next; });
-                    setDefenses(prev => { const next = {...prev}; Object.keys(defenderDefensesLosses).forEach(k => next[k as DefenseType] = Math.max(0, (prev[k as DefenseType] || 0) - (defenderDefensesLosses[k as DefenseType] || 0))); return next; });
-                    setResources(prev => ({
-                        metal: Math.max(0, prev.metal - (actualLoot.metal || 0)),
-                        crystal: Math.max(0, prev.crystal - (actualLoot.crystal || 0)),
-                        deuterium: Math.max(0, prev.deuterium - (actualLoot.deuterium || 0)),
-                    }));
-
-                    const newNpcState = {...attackerNpc};
-                    newNpcState.resources.metal += actualLoot.metal || 0;
-                    newNpcState.resources.crystal += actualLoot.crystal || 0;
-                    newNpcState.resources.deuterium += actualLoot.deuterium || 0;
-                    Object.keys(attackerLosses).forEach(key => { newNpcState.fleet[key as ShipType] = Math.max(0, (newNpcState.fleet[key as ShipType] || 0) - (attackerLosses[key as ShipType] || 0)); });
-                    setNpcStates(prev => ({ ...prev, [mission.sourceCoords]: newNpcState }));
-
-                    const newMessage: BattleMessage = { id: `msg-${now}-${Math.random()}`, type: 'battle', timestamp: now, isRead: false, subject: `Atak na Twoją planetę przez gracza ${attackerDisplayName} [${mission.sourceCoords}]`, report: battleReport };
-                    setMessages(prev => [newMessage, ...prev]);
-                    showNotification(`Twoja planeta została zaatakowana przez gracza ${attackerDisplayName}!`);
-              }
-          });
-          setNpcFleetMissions(prev => prev.filter(m => now < m.arrivalTime));
-      }
-
-
-      setMerchantState(prev => {
-          if (prev.status === MerchantStatus.INCOMING && now >= prev.arrivalTime) {
-              const departureTime = now + 2 * 3600 * 1000;
-              const newMessage: MerchantInfoMessage = { id: `msg-${now}-merch-active`, type: 'merchant', timestamp: now, isRead: false, subject: 'Kupiec przybył!', merchantStatus: MerchantStatus.ACTIVE, eventTime: departureTime };
-              setMessages(m => [newMessage, ...m]);
-              showNotification("Transportowiec handlowy przybył!");
-              return { ...prev, status: MerchantStatus.ACTIVE, departureTime: departureTime };
-          }
-          if (prev.status === MerchantStatus.ACTIVE && now >= prev.departureTime) {
-              const newMessage: MerchantInfoMessage = { id: `msg-${now}-merch-gone`, type: 'merchant', timestamp: now, isRead: false, subject: 'Kupiec odleciał', merchantStatus: MerchantStatus.INACTIVE, eventTime: now };
-              setMessages(m => [newMessage, ...m]);
-              if (activeView === 'merchant') setActiveView('buildings');
-              showNotification("Kupiec odleciał.");
-              return { ...prev, status: MerchantStatus.INACTIVE };
-          }
-          return prev;
-      });
-
-      if (now - lastMerchantCheckTime > 6 * 3600 * 1000) {
-          setLastMerchantCheckTime(now);
-          if (merchantState.status === MerchantStatus.INACTIVE && Math.random() < 0.35) {
-              const arrivalTime = now + 5 * 3600 * 1000;
-              const newRates = {
-                  metal: { buy: 2 + Math.random(), sell: 1 + Math.random() * 0.5 },
-                  crystal: { buy: 4 + Math.random() * 2, sell: 2 + Math.random() },
-                  deuterium: { buy: 6 + Math.random() * 3, sell: 3 + Math.random() * 1.5 },
-              };
-              setMerchantState({ status: MerchantStatus.INCOMING, arrivalTime, departureTime: 0, rates: newRates });
-              const newMessage: MerchantInfoMessage = { id: `msg-${now}-merch-coming`, type: 'merchant', timestamp: now, isRead: false, subject: 'Kupiec w drodze', merchantStatus: MerchantStatus.INCOMING, eventTime: arrivalTime };
-              setMessages(m => [newMessage, ...m]);
-              showNotification("Wykryto sygnaturę transportowca handlowego!");
-          }
-      }
-
-      setPirateMercenaryState(prev => {
-          if (prev.status === PirateMercenaryStatus.INCOMING && now >= prev.arrivalTime) {
-              const newDepartureTime = prev.arrivalTime + 1 * 3600 * 1000;
-              const newState: PirateMercenaryState = { ...prev, status: PirateMercenaryStatus.AVAILABLE, departureTime: newDepartureTime };
-              const newMessage: PirateMessage = { id: `msg-${now}-pirate-avail`, type: 'pirate', timestamp: now, isRead: false, subject: 'Najemnicy przybyli', pirateState: newState };
-              setMessages(m => [newMessage, ...m]);
-              showNotification("Piraci-najemnicy przybyli. Masz godzinę, by ich wynająć!");
-              return newState;
-          }
-          if (prev.status === PirateMercenaryStatus.AVAILABLE && now >= prev.departureTime) {
-              const newState: PirateMercenaryState = { ...prev, status: PirateMercenaryStatus.DEPARTED };
-              const newMessage: PirateMessage = { id: `msg-${now}-pirate-gone`, type: 'pirate', timestamp: now, isRead: false, subject: 'Najemnicy odlecieli', pirateState: newState };
-              setMessages(m => [newMessage, ...m]);
-              showNotification("Oferta najemników wygasła i odlecieli.");
-              return newState;
-          }
-           if (prev.status === PirateMercenaryStatus.DEPARTED && now >= prev.departureTime + 60 * 1000) {
-              return { ...INITIAL_PIRATE_MERCENARY_STATE };
-          }
-          return prev;
-      });
-
-      if (now - lastPirateCheckTime > 8 * 3600 * 1000) {
-          setLastPirateCheckTime(now);
-          if (pirateMercenaryState.status === PirateMercenaryStatus.INACTIVE && Math.random() < 0.5) {
-                const totalShips = Math.floor(Math.random() * 9) + 2;
-                const lightFighterRatio = 0.7 + Math.random() * 0.1;
-                const lightFighters = Math.round(totalShips * lightFighterRatio);
-                const heavyFighters = totalShips - lightFighters;
-
-                const pirateFleet: Fleet = {};
-                if (lightFighters > 0) pirateFleet[ShipType.LIGHT_FIGHTER] = lightFighters;
-                if (heavyFighters > 0) pirateFleet[ShipType.HEAVY_FIGHTER] = heavyFighters;
-                
-                const lfCost = SHIPYARD_DATA[ShipType.LIGHT_FIGHTER].cost(1);
-                const hfCost = SHIPYARD_DATA[ShipType.HEAVY_FIGHTER].cost(1);
-                
-                const totalResourceCost: Resources = {
-                    metal: (lfCost.metal * (lightFighters || 0)) + (hfCost.metal * (heavyFighters || 0)),
-                    crystal: (lfCost.crystal * (lightFighters || 0)) + (hfCost.crystal * (heavyFighters || 0)),
-                    deuterium: (lfCost.deuterium * (lightFighters || 0)) + (hfCost.deuterium * (heavyFighters || 0)),
-                };
-
-                const hireCost = Math.floor(
-                    (totalResourceCost.metal * 1.5 + totalResourceCost.crystal * 2.5 + totalResourceCost.deuterium * 4) * 1.2
-                );
-
-                const arrivalTime = now + 3 * 3600 * 1000;
-
-                const newState: PirateMercenaryState = {
-                    status: PirateMercenaryStatus.INCOMING,
-                    fleet: pirateFleet,
-                    hireCost: hireCost,
-                    arrivalTime: arrivalTime,
-                    departureTime: 0,
-                };
-                
-                setPirateMercenaryState(newState);
-
-                const newMessage: PirateMessage = { id: `msg-${now}-pirate-inc`, type: 'pirate', timestamp: now, isRead: false, subject: 'Sygnał od najemników', pirateState: newState };
-                setMessages(m => [newMessage, ...m]);
-                showNotification("Wykryto sygnaturę floty piratów-najemników! Będą tu za 3 godziny.");
-          }
-      }
-
-      if (now - lastAsteroidCheckTime > 12 * 3600 * 1000) {
-          setLastAsteroidCheckTime(now);
-          if (Math.random() < 0.25) { 
-              if (Math.random() < 0.5) {
-                  const builtBuildings = (Object.keys(buildings) as BuildingType[])
-                      .filter(b => buildings[b as BuildingType] > 0);
-                  
-                  if (builtBuildings.length > 0) {
-                      const buildingToHit = builtBuildings[Math.floor(Math.random() * builtBuildings.length)];
-                      const currentLevel = buildings[buildingToHit as BuildingType];
-                      const newLevel = currentLevel - 1;
-
-                      setBuildings(prev => ({ ...prev, [buildingToHit]: newLevel }));
-
-                      const buildingName = BUILDING_DATA[buildingToHit as BuildingType].name;
-                      const notificationText = `Uderzenie meteorytu! Twoja ${buildingName} została uszkodzona!`;
-                      showNotification(notificationText);
-                      
-                      const newMessage: AsteroidImpactMessage = {
-                          id: `msg-${now}-asteroid`,
-                          type: 'asteroid_impact',
-                          timestamp: now,
-                          isRead: false,
-                          subject: 'Uderzenie meteorytu!',
-                          impactType: AsteroidImpactType.DAMAGE,
-                          details: {
-                              buildingId: buildingToHit as BuildingType,
-                              newLevel: newLevel,
-                          }
-                      };
-                      setMessages(m => [newMessage, ...m]);
-                  }
-              } 
-              else {
-                  const resourceType = (Math.random() < 0.5 ? 'metal' : 'crystal') as 'metal' | 'crystal';
-                  const bonusAmount = Math.floor(5000 + Math.random() * (productions[resourceType] * 2 + 5000));
-                  
-                  setResources(prev => ({
-                      ...prev,
-                      [resourceType]: Math.min(prev[resourceType] + bonusAmount, maxResources[resourceType])
-                  }));
-
-                  const resourceName = resourceType === 'metal' ? 'Metalu' : 'Kryształu';
-                  const notificationText = `Deszcz meteorytów! Otrzymano bonus: +${formatNumber(bonusAmount)} ${resourceName}!`;
-                  showNotification(notificationText);
-
-                  const newMessage: AsteroidImpactMessage = {
-                      id: `msg-${now}-asteroid`,
-                      type: 'asteroid_impact',
-                      timestamp: now,
-                      isRead: false,
-                      subject: 'Deszcz meteorytów!',
-                      impactType: AsteroidImpactType.BONUS,
-                      details: {
-                          resourceType: resourceType,
-                          amount: bonusAmount,
-                      }
-                  };
-                  setMessages(m => [newMessage, ...m]);
-              }
-          }
-      }
-
-        if (resourceVeinBonus.active && now >= resourceVeinBonus.endTime) {
-            const expiredBonusType = resourceVeinBonus.resourceType;
-            if (expiredBonusType) {
-                const resourceNameMap = {metal: 'Metalu', crystal: 'Kryształu', deuterium: 'Deuteru'};
-                const resourceName = resourceNameMap[expiredBonusType];
-                showNotification(`Premia do wydobycia ${resourceName} wygasła.`);
-                const newMessage: ResourceVeinMessage = {
-                    id: `msg-${now}-vein-expired`,
-                    type: 'resource_vein',
-                    timestamp: now,
-                    isRead: false,
-                    subject: `Koniec premii do wydobycia ${resourceName}`,
-                    resourceType: expiredBonusType,
-                    bonusEndTime: resourceVeinBonus.endTime,
-                    status: 'expired'
-                };
-                setMessages(m => [newMessage, ...m]);
-            }
-            setResourceVeinBonus(INITIAL_RESOURCE_VEIN_BONUS);
-        }
-
-        if (now - lastResourceVeinCheckTime > 24 * 3600 * 1000) {
-            setLastResourceVeinCheckTime(now);
-            if (!resourceVeinBonus.active && Math.random() < 0.15) { 
-                const possibleResources: (keyof Resources)[] = ['metal', 'crystal', 'deuterium'];
-                const resourceType = possibleResources[Math.floor(Math.random() * possibleResources.length)];
-                const bonusEndTime = now + 24 * 3600 * 1000;
-
-                setResourceVeinBonus({
-                    active: true,
-                    resourceType,
-                    endTime: bonusEndTime,
-                    bonusMultiplier: 1.25,
-                });
-                
-                const resourceNameMap = {metal: 'Metalu', crystal: 'Kryształu', deuterium: 'Deuteru'};
-                const resourceName = resourceNameMap[resourceType];
-                showNotification(`Odkryto bogatą żyłę ${resourceName}! Produkcja +25% na 24h!`);
-
-                const newMessage: ResourceVeinMessage = {
-                    id: `msg-${now}-vein-active`,
-                    type: 'resource_vein',
-                    timestamp: now,
-                    isRead: false,
-                    subject: `Odkryto bogatą żyłę ${resourceName}!`,
-                    resourceType,
-                    bonusEndTime,
-                    status: 'activated'
-                };
-                setMessages(m => [newMessage, ...m]);
-            }
-        }
-
-        if (now - lastArtifactCheckTime > 24 * 3600 * 1000) {
-            setLastArtifactCheckTime(now);
-            if (ancientArtifactState.status === AncientArtifactStatus.INACTIVE && buildings[BuildingType.RESEARCH_LAB] > 0 && Math.random() < 0.20) { 
-                setAncientArtifactState({ status: AncientArtifactStatus.AWAITING_CHOICE });
-                showNotification("Niezwykłe odkrycie! Twoi koloniści odkopali tajemniczy artefakt!");
-            }
-        }
-
-        if (spacePlague.active && now >= spacePlague.endTime) {
-            if (spacePlague.infectedShip) {
-                const shipName = SHIPYARD_DATA[spacePlague.infectedShip].name;
-                showNotification(`Zaraza na statkach typu ${shipName} została zwalczona!`);
-                 const newMessage: SpacePlagueMessage = {
-                    id: `msg-${now}-plague-end`, type: 'space_plague', timestamp: now, isRead: false,
-                    subject: `Zaraza zwalczona: ${shipName}`,
-                    infectedShip: spacePlague.infectedShip,
-                    status: 'expired'
-                };
-                setMessages(m => [newMessage, ...m]);
-            }
-            setSpacePlague(INITIAL_SPACE_PLAGUE_STATE);
-        }
-
-        if (now - lastSpacePlagueCheckTime > 24 * 3600 * 1000) {
-            setLastSpacePlagueCheckTime(now);
-            const ownedShipTypes = (Object.keys(fleet) as ShipType[]).filter(t => (fleet[t] || 0) > 0);
-            if (!spacePlague.active && ownedShipTypes.length > 0 && Math.random() < 0.20) { 
-                const shipToInfect = ownedShipTypes[Math.floor(Math.random() * ownedShipTypes.length)];
-                setSpacePlague({
-                    active: true,
-                    infectedShip: shipToInfect,
-                    endTime: now + 12 * 3600 * 1000, 
-                });
-                const shipName = SHIPYARD_DATA[shipToInfect].name;
-                showNotification(`Kosmiczna zaraza! ${shipName} zostały zainfekowane! Atak -20%.`);
-                const newMessage: SpacePlagueMessage = {
-                    id: `msg-${now}-plague-start`, type: 'space_plague', timestamp: now, isRead: false,
-                    subject: `Wykryto zarazę na statkach: ${shipName}`,
-                    infectedShip: shipToInfect,
-                    status: 'activated'
-                };
-                setMessages(m => [newMessage, ...m]);
-            }
-        }
-        
-        const newActiveBoosts: ActiveBoosts = {};
-        let boostsChanged = false;
-        for (const key in activeBoosts) {
-            const boostType = key as BoostType;
-            const boost = activeBoosts[boostType];
-            if (boost && boost.endTime > now) {
-                newActiveBoosts[boostType] = boost;
-            } else {
-                showNotification(`Bonus "${getBoostNameForNotif({ type: boostType, level: (boost as any).level || 1 })}" wygasł.`);
-                boostsChanged = true;
-            }
-        }
-        if (boostsChanged) {
-            setActiveBoosts(newActiveBoosts);
-        }
+      
+      // No need to update the entire state here, just the UI-related parts.
+      // The authoritative state is on the server.
+      // This loop is now mostly for animating the resource counters.
 
     }, TICK_INTERVAL);
     return () => clearInterval(gameLoop);
-  }, [currentUser, productions, buildQueue, maxResources, fleet, defenses, fleetMissions, npcFleetMissions, npcStates, showNotification, lastMerchantCheckTime, merchantState, activeView, research, resources, shipLevels, awardedBonuses, debrisFields, pirateMercenaryState, lastPirateCheckTime, lastAsteroidCheckTime, resourceVeinBonus, lastResourceVeinCheckTime, ancientArtifactState, lastArtifactCheckTime, buildings, handleArtifactChoice, spacePlague, lastSpacePlagueCheckTime, colonies, inventory, activeBoosts, handleActivateBoost, activeCostReduction, credits, blackMarketHourlyIncome, lastBlackMarketIncomeCheck]);
+  }, [isLoading, productions, maxResources]);
+  
 
   const handleAddToQueue = useCallback((id: GameObject, type: QueueItemType, amount = 1) => {
+    // This logic remains on client for immediate feedback, server will validate on next load
     const queueCapacity = activeBoosts[BoostType.EXTRA_BUILD_QUEUE]?.level || 1;
     const buildingQueueCount = buildQueue.filter(item => ['building', 'research', 'ship_upgrade'].includes(item.type)).length;
     const shipyardQueueCount = buildQueue.filter(item => ['ship', 'defense'].includes(item.type)).length;
@@ -1628,7 +510,6 @@ const handleActivateBoost = useCallback((boostId: string) => {
         showNotification(`Stocznia jest zajęta! (Max: ${queueCapacity})`);
         return;
     }
-
 
     const objectInfo = ALL_GAME_OBJECTS[id as keyof typeof ALL_GAME_OBJECTS];
     let levelOrAmount: number;
@@ -1655,7 +536,7 @@ const handleActivateBoost = useCallback((boostId: string) => {
             deuterium: Math.floor(cost.deuterium * (1 - reduction)),
         };
         showNotification(`Zastosowano zniżkę ${activeCostReduction}%!`);
-        setActiveCostReduction(0);
+        setActiveCostReduction(0); // Consume the boost
     }
 
     const totalCost = { metal: (cost.metal || 0) * amount, crystal: (cost.crystal || 0) * amount, deuterium: (cost.deuterium || 0) * amount };
@@ -1673,6 +554,7 @@ const handleActivateBoost = useCallback((boostId: string) => {
   }, [resources, buildings, research, shipLevels, buildQueue, showNotification, productions.energy.produced, activeBoosts, activeCostReduction]);
   
   const handleSendFleet = useCallback((missionFleet: Fleet, targetCoords: string, missionType: MissionType) => {
+      // This logic also remains on client for immediate feedback
       const now = Date.now();
       const isTargetOccupied = npcStates[targetCoords] || colonies.some(c => c.id === targetCoords) || targetCoords === PLAYER_HOME_COORDS;
 
@@ -1732,10 +614,10 @@ const handleActivateBoost = useCallback((boostId: string) => {
       
       const speedBoost = 1 + (activeBoosts[BoostType.DRIVE_TECH_BOOST]?.level || 0) / 100;
       const slowestSpeed = Math.min(...speeds) * speedBoost;
-      let missionDuration = Math.floor(36000000 / slowestSpeed); 
+      let missionDuration = Math.floor(36000000 / slowestSpeed); // one way
 
       if (missionType === MissionType.EXPEDITION) {
-          missionDuration = Math.floor(missionDuration * (1.5 + Math.random())); 
+          missionDuration = Math.floor(missionDuration * (1.5 + Math.random())); // Expeditions take longer
       }
       
       const arrivalTime = now + missionDuration * 1000;
@@ -1743,11 +625,11 @@ const handleActivateBoost = useCallback((boostId: string) => {
       let explorationEndTime: number | undefined;
 
       if(missionType === MissionType.EXPEDITION) {
-        const holdTime = (10 + Math.random() * 20) * 60 * 1000; 
+        const holdTime = (10 + Math.random() * 20) * 60 * 1000; // 10-30 min hold time
         returnTime += holdTime;
       }
       if(missionType === MissionType.COLONIZE) {
-          returnTime = arrivalTime; 
+          returnTime = arrivalTime; // One-way trip
       }
       if(missionType === MissionType.EXPLORE) {
           explorationEndTime = arrivalTime + 5 * 3600 * 1000;
@@ -1793,7 +675,7 @@ const handleActivateBoost = useCallback((boostId: string) => {
           setCredits(c => c - costOrGain);
           setResources(r => ({ ...r, [resource]: r[resource] + amount }));
           showNotification(`Kupiono ${amount.toLocaleString()} ${resource} za ${costOrGain.toLocaleString()} kredytów.`);
-      } else { 
+      } else { // sell
           if (resources[resource] < amount) {
               showNotification(`Za mało ${resource}!`);
               return;
@@ -1850,9 +732,27 @@ const handleActivateBoost = useCallback((boostId: string) => {
       }
   }, [npcStates, showNotification]);
 
-  if (!currentUser) {
-    return <Auth onLogin={handleLogin} />;
-  }
+    if (isLoading) {
+        return (
+            <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center text-white">
+                <div className="text-4xl mb-4">🪐</div>
+                <h1 className="text-3xl font-bold text-cyan-300 animate-pulse">Ładowanie Twojego Imperium...</h1>
+                <p className="text-gray-400 mt-2">Proszę czekać, nawiązujemy połączenie z serwerem galaktycznym.</p>
+            </div>
+        );
+    }
+    
+    if (error) {
+        return (
+            <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center text-white p-8">
+                 <div className="text-4xl mb-4">☠️</div>
+                <h1 className="text-3xl font-bold text-red-500">Błąd Połączenia</h1>
+                <p className="text-gray-400 mt-2 text-center">Nie można załadować stanu gry z serwera.</p>
+                <p className="text-sm text-gray-500 mt-4 bg-gray-800 p-4 rounded-lg">{error}</p>
+                 <button onClick={() => window.location.reload()} className="mt-6 px-6 py-2 bg-cyan-600 hover:bg-cyan-500 rounded font-bold">Spróbuj ponownie</button>
+            </div>
+        );
+    }
 
   return (
     <div className="min-h-screen bg-gray-900 bg-cover bg-center bg-fixed" style={{backgroundImage: "url('https://picsum.photos/seed/galaxy/1920/1080')"}}>
@@ -1876,6 +776,7 @@ const handleActivateBoost = useCallback((boostId: string) => {
             onEncyclopediaClick={() => setIsEncyclopediaOpen(true)}
             onInventoryClick={() => setIsInventoryOpen(true)}
             npcFleetMissions={npcFleetMissions}
+            isSaving={isSaving}
         />
         <PirateMercenaryPanel pirateState={pirateMercenaryState} credits={credits} onHire={handleHirePirates} />
         <main className="container mx-auto p-4 md:p-8">
@@ -1884,7 +785,6 @@ const handleActivateBoost = useCallback((boostId: string) => {
                 setActiveView={setActiveView} 
                 unreadMessagesCount={messages.filter(m => !m.isRead).length}
                 merchantState={merchantState}
-                onLogout={handleLogout}
             />
             {notification && (
                 <div className="fixed top-24 left-1/2 -translate-x-1/2 bg-blue-900 border border-blue-600 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-pulse">
@@ -1906,8 +806,8 @@ const handleActivateBoost = useCallback((boostId: string) => {
                 {activeView === 'merchant' && merchantState.status === MerchantStatus.ACTIVE && <MerchantPanel merchantState={merchantState} resources={resources} credits={credits} maxResources={maxResources} onTrade={handleTrade} />}
             </div>
            <footer className="text-center text-gray-500 mt-12 pb-4">
-              <p>Kosmiczny Władca ({currentUser}) - Inspirowane OGame</p>
-              <p>Stan gry jest automatycznie zapisywany w Twojej przeglądarce.</p>
+              <p>Kosmiczny Władca - Inspirowane OGame</p>
+              <p>Stan gry jest automatycznie zapisywany na serwerze.</p>
            </footer>
         </main>
       </div>

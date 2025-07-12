@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { View, MerchantState, MerchantStatus } from '../types';
 
@@ -7,7 +8,6 @@ interface NavigationProps {
     setActiveView: (view: View) => void;
     unreadMessagesCount: number;
     merchantState: MerchantState;
-    onLogout: () => void;
 }
 
 const formatTime = (seconds: number) => {
@@ -35,7 +35,7 @@ const NavButton: React.FC<{ label: string, view: View, activeView: View, onClick
 ({ label, view, activeView, onClick, icon, badgeCount, countdownTime }) => (
     <button
         onClick={() => onClick(view)}
-        className={`relative flex-grow flex items-center justify-center px-3 py-3 text-sm md:text-base font-bold transition-all duration-300 rounded-t-lg
+        className={`relative flex-1 flex items-center justify-center px-4 py-3 text-sm md:text-base font-bold transition-all duration-300 rounded-t-lg
         ${activeView === view 
             ? 'bg-gray-800 bg-opacity-70 border-b-2 border-cyan-400 text-white' 
             : 'bg-gray-900 bg-opacity-50 text-gray-400 hover:bg-gray-700 hover:text-white'
@@ -49,7 +49,7 @@ const NavButton: React.FC<{ label: string, view: View, activeView: View, onClick
     </button>
 );
 
-const Navigation: React.FC<NavigationProps> = ({ activeView, setActiveView, unreadMessagesCount, merchantState, onLogout }) => {
+const Navigation: React.FC<NavigationProps> = ({ activeView, setActiveView, unreadMessagesCount, merchantState }) => {
     let merchantCountdown: number | undefined;
     let merchantLabel = 'Kupiec';
 
@@ -62,27 +62,19 @@ const Navigation: React.FC<NavigationProps> = ({ activeView, setActiveView, unre
     }
 
     return (
-        <div className="border-b border-gray-700">
-            <nav className="flex flex-wrap md:flex-nowrap -mb-px">
-                <NavButton label="Budynki" view="buildings" activeView={activeView} onClick={setActiveView} icon="🏢" />
-                <NavButton label="Badania" view="research" activeView={activeView} onClick={setActiveView} icon="🔬" />
-                <NavButton label="Ulepszenia" view="fleet_upgrades" activeView={activeView} onClick={setActiveView} icon="⬆️" />
-                <NavButton label="Stocznia" view="shipyard" activeView={activeView} onClick={setActiveView} icon="🛠️" />
-                <NavButton label="Obrona" view="defense" activeView={activeView} onClick={setActiveView} icon="🛡️" />
-                <NavButton label="Flota" view="fleet" activeView={activeView} onClick={setActiveView} icon="🚀" />
-                <NavButton label="Galaktyka" view="galaxy" activeView={activeView} onClick={setActiveView} icon="🪐" />
-                <NavButton label="Wiadomości" view="messages" activeView={activeView} onClick={setActiveView} icon="✉️" badgeCount={unreadMessagesCount} />
-                {merchantState.status !== MerchantStatus.INACTIVE && (
-                     <NavButton label={merchantLabel} view="merchant" activeView={activeView} onClick={setActiveView} icon="💰" countdownTime={merchantCountdown} />
-                )}
-                 <button
-                    onClick={onLogout}
-                    className={`relative flex-grow flex items-center justify-center px-3 py-3 text-sm md:text-base font-bold transition-all duration-300 rounded-t-lg bg-gray-900 bg-opacity-50 text-gray-400 hover:bg-red-800 hover:text-white`}
-                >
-                    <span className="text-xl mr-2">🚪</span> Wyloguj
-                </button>
-            </nav>
-        </div>
+        <nav className="flex flex-wrap md:flex-nowrap space-x-1 md:space-x-2 border-b border-gray-700">
+            <NavButton label="Budynki" view="buildings" activeView={activeView} onClick={setActiveView} icon="🏢" />
+            <NavButton label="Badania" view="research" activeView={activeView} onClick={setActiveView} icon="🔬" />
+            <NavButton label="Ulepszenia" view="fleet_upgrades" activeView={activeView} onClick={setActiveView} icon="⬆️" />
+            <NavButton label="Stocznia" view="shipyard" activeView={activeView} onClick={setActiveView} icon="🛠️" />
+            <NavButton label="Obrona" view="defense" activeView={activeView} onClick={setActiveView} icon="🛡️" />
+            <NavButton label="Flota" view="fleet" activeView={activeView} onClick={setActiveView} icon="🚀" />
+            <NavButton label="Galaktyka" view="galaxy" activeView={activeView} onClick={setActiveView} icon="🪐" />
+            <NavButton label="Wiadomości" view="messages" activeView={activeView} onClick={setActiveView} icon="✉️" badgeCount={unreadMessagesCount} />
+            {merchantState.status !== MerchantStatus.INACTIVE && (
+                 <NavButton label={merchantLabel} view="merchant" activeView={activeView} onClick={setActiveView} icon="💰" countdownTime={merchantCountdown} />
+            )}
+        </nav>
     );
 }
 
